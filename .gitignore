@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.local/
+artifacts/
+.env*
+!.env.example
+*.tsbuildinfo
+*.log
+*.sqlite*
+*.db
+*.db-*
+AGENTS.md
+CLAUDE.md
