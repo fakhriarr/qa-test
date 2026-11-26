@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { SIMULATION_LABEL, loginSchema, passwordSchema, type SessionResponse } from "@/contracts";
+import { loginSchema, passwordSchema, type SessionResponse } from "@/contracts";
 import { apiRequest, authStateFor, errorText, HttpError } from "@/components/api-client";
 
 type View = "loading" | "login" | "invited" | "ready" | "forbidden" | "setup" | "error";
@@ -91,7 +91,6 @@ export default function LoginPage() {
   }
 
   return <main className="shell auth-shell">
-    <div className="simulation-banner" role="status">{SIMULATION_LABEL}</div>
     <section className="panel auth-panel" aria-labelledby="login-title">
       <p className="eyebrow">AKSES INTERNAL / DASHBOARD QA</p>
       <h1 id="login-title">{view === "login" ? "Masuk ke dashboard" : view === "invited" ? "Atur password undangan" : view === "ready" ? "Sesi sudah aktif" : view === "forbidden" ? "Akses belum diizinkan" : view === "setup" ? "Konfigurasi belum siap" : view === "error" ? "Sesi belum dapat diperiksa" : "Memeriksa sesi…"}</h1>
@@ -117,7 +116,7 @@ export default function LoginPage() {
       </form>}
 
       <div className="actions auth-actions">{view === "ready" && <a className="button button-primary" href="/">Buka dashboard</a>}{view === "error" && <button className="button button-quiet" type="button" onClick={() => window.location.reload()}>Coba periksa lagi</button>}{(view === "forbidden" || view === "setup") && <a className="button button-quiet" href="/">Periksa sesi</a>}</div>
-      <p className="fineprint">Simulasi ini tidak menguji situs target dan tidak terhubung ke agent QA OpenBot.</p>
+      <p className="fineprint">Akses internal untuk mengirim permintaan pengujian ke agent QA OpenBot dan memantau hasilnya.</p>
     </section>
   </main>;
 }

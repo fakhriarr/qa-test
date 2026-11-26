@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
-  SIMULATION_LABEL, canReconcile, createJobSchema, deliverables, isTerminal, uuidSchema,
+  canReconcile, createJobSchema, deliverables, isTerminal, uuidSchema,
   type CreateJob, type Job, type JobListResponse, type JobResponse, type SessionResponse, type SessionUser,
 } from "@/contracts";
 import { apiRequest, authStateFor, errorText, HttpError } from "@/components/api-client";
@@ -15,11 +15,11 @@ function dateLabel(value: string) {
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 const deliveryLabel: Record<Job["deliveryStatus"], string> = {
-  not_sent: "Belum dikirim", sending: "Mengirim", accepted: "Diterima simulator",
+  not_sent: "Belum dikirim", sending: "Mengirim", accepted: "Diterima agent QA",
   failed: "Pengiriman gagal", unknown: "Pengiriman belum pasti",
 };
 const executionLabel: Record<Job["executionStatus"], string> = {
-  not_started: "Belum dimulai", running: "Berjalan", succeeded: "Selesai di simulator", failed: "Gagal di simulator",
+  not_started: "Belum dimulai", running: "Berjalan", succeeded: "Selesai", failed: "Gagal",
 };
 const outcomeLabel = { pass: "Sesuai", fail: "Tidak sesuai", blocked: "Terhalang" } as const;
 
@@ -86,7 +86,6 @@ export default function Home() {
 
   if (view === "ready" && user) return <Dashboard key={user.id} user={user} onLogout={logout} onAuthFailure={onAuthFailure} />;
   return <main className="shell auth-shell">
-    <div className="simulation-banner" role="status">{SIMULATION_LABEL}</div>
     <section className="panel auth-panel" aria-labelledby="auth-title">
       <p className="eyebrow">DASHBOARD QA</p>
       <h1 id="auth-title">{view === "loading" ? "Memeriksa sesi…" : view === "login" ? "Sesi diperlukan" : view === "forbidden" ? "Akses belum diizinkan" : view === "setup" ? "Konfigurasi belum siap" : "Sesi belum dapat diperiksa"}</h1>
@@ -262,7 +261,7 @@ function Dashboard({ user, onLogout, onAuthFailure }: { user: SessionUser; onLog
       setScope("");
       setCriteria("");
       setStale(false);
-      setNotice({ kind: "info", text: "Job tersimpan. Job belum dikirim; pilih Kirim untuk menjalankan simulasi." });
+      setNotice({ kind: "info", text: "Job tersimpan. Job belum dikirim; pilih Kirim untuk mengirim ke agent QA." });
       void loadJobs();
     } catch (error) {
       if (!activeRef.current || requestController.current?.signal.aborted || onAuthFailure(error)) return;
@@ -335,7 +334,7 @@ function Dashboard({ user, onLogout, onAuthFailure }: { user: SessionUser; onLog
       detailSeq.current++;
       replaceJob(data.job);
       setStale(false);
-      setNotice({ kind: "info", text: "Aksi simulator dicatat. Perbarui status untuk melihat hasil terkini." });
+      setNotice({ kind: "info", text: "Aksi QA dicatat. Perbarui status untuk melihat hasil terkini." });
       void loadDetail(job.jobId);
     } catch (error) {
       if (!activeRef.current || requestController.current?.signal.aborted || onAuthFailure(error)) return;
@@ -352,10 +351,9 @@ function Dashboard({ user, onLogout, onAuthFailure }: { user: SessionUser; onLog
   }
 
   return <main className="shell">
-    <div className="simulation-banner" role="status">{SIMULATION_LABEL}</div>
     <header className="masthead">
-      <div><p className="eyebrow">QA / SIMULASI AGENT</p><h1>Dashboard pengujian</h1><p className="subhead">Catat permintaan, pantau simulasi, dan tinjau hasil dummy milik akunmu.</p></div>
-      <div className="masthead-side"><div className="masthead-note"><span className="note-dot" /> <span>Target URL hanya disimpan. Tidak ada pengujian web nyata.</span></div><div className="account-bar"><span>{user.email ?? "Akun aktif"}</span><button type="button" className="text-button" onClick={onLogout}>Keluar</button></div></div>
+      <div><p className="eyebrow">QA / OPENBOT AGENT</p><h1>Dashboard pengujian</h1><p className="subhead">Catat permintaan, pantau eksekusi agent QA, dan tinjau hasil pengujian milik akunmu.</p></div>
+      <div className="masthead-side"><div className="masthead-note"><span className="note-dot" /> <span>Terhubung ke agent QA OpenBot melalui webhook &amp; callback terverifikasi.</span></div><div className="account-bar"><span>{user.email ?? "Akun aktif"}</span><button type="button" className="text-button" onClick={onLogout}>Keluar</button></div></div>
     </header>
 
     {notice && <div className={`notice notice-${notice.kind}`} role={notice.kind === "error" ? "alert" : "status"}>{notice.text}</div>}
@@ -363,15 +361,15 @@ function Dashboard({ user, onLogout, onAuthFailure }: { user: SessionUser; onLog
 
     <div className="dashboard-grid">
       <section className="panel create-panel" aria-labelledby="create-title">
-        <div className="panel-heading"><div><p className="eyebrow">01 / PERMINTAAN</p><h2 id="create-title">Buat job dummy</h2></div><span className="step-mark">DRAFT</span></div>
+        <div className="panel-heading"><div><p className="eyebrow">01 / PERMINTAAN</p><h2 id="create-title">Buat job QA</h2></div><span className="step-mark">DRAFT</span></div>
         <p className="panel-description">Buat menyimpan job saja. Pengiriman dilakukan terpisah setelah job dipilih.</p>
         <form ref={formRef} onSubmit={handleCreate} noValidate>
           <label htmlFor="target-url">URL target <span className="required">*</span></label>
           <input id="target-url" data-field="targetUrl" type="url" inputMode="url" value={targetUrl} onChange={event => setTargetUrl(event.target.value)} aria-invalid={invalidField === "targetUrl"} aria-describedby={formError && invalidField === "targetUrl" ? "form-error" : undefined} maxLength={2048} required />
-          <p className="field-help">Contoh dummy: https://example.invalid/qa-demo. URL tidak dibuka oleh proof ini.</p>
+          <p className="field-help">Masukkan URL HTTP(S) target yang akan diuji oleh agent QA OpenBot.</p>
 
           <label htmlFor="scope">Cakupan pengujian <span className="required">*</span></label>
-          <textarea id="scope" data-field="scope" value={scope} onChange={event => setScope(event.target.value)} placeholder="Contoh: alur halaman dan validasi formulir dummy" rows={3} maxLength={2000} required aria-invalid={invalidField === "scope"} aria-describedby={formError && invalidField === "scope" ? "form-error" : undefined} />
+          <textarea id="scope" data-field="scope" value={scope} onChange={event => setScope(event.target.value)} placeholder="Contoh: alur halaman utama dan validasi formulir" rows={3} maxLength={2000} required aria-invalid={invalidField === "scope"} aria-describedby={formError && invalidField === "scope" ? "form-error" : undefined} />
 
           <label htmlFor="criteria">Kriteria penerimaan <span className="required">*</span></label>
           <textarea id="criteria" data-field="acceptanceCriteria" value={criteria} onChange={event => setCriteria(event.target.value)} placeholder={"Satu kriteria per baris\nContoh: formulir menampilkan pesan validasi"} rows={4} required aria-invalid={invalidField === "acceptanceCriteria"} aria-describedby={formError && invalidField === "acceptanceCriteria" ? "form-error" : undefined} />
@@ -391,7 +389,7 @@ function Dashboard({ user, onLogout, onAuthFailure }: { user: SessionUser; onLog
         <div className="panel-heading"><div><p className="eyebrow">02 / ANTRIAN</p><h2 id="jobs-title">Job tersimpan</h2></div><button type="button" className="button button-quiet" onClick={() => void loadJobs(true)} disabled={listLoading}>Muat ulang</button></div>
         {listLoading && jobs.length === 0 ? <p className="empty-state" role="status">Memuat daftar job…</p>
           : jobs.length === 0 && listFailed ? <div className="empty-state" role="alert"><strong>Daftar belum dapat dimuat.</strong><span>Periksa koneksi dan muat ulang status.</span></div>
-          : jobs.length === 0 ? <div className="empty-state"><strong>Belum ada job.</strong><span>Isi formulir untuk membuat permintaan dummy pertama.</span></div>
+          : jobs.length === 0 ? <div className="empty-state"><strong>Belum ada job.</strong><span>Isi formulir untuk membuat permintaan QA pertama.</span></div>
           : <ul className="job-list">{jobs.map(job => <li key={job.jobId}>
             <button type="button" className={`job-item ${selectedId === job.jobId ? "selected" : ""}`} onClick={() => selectJob(job.jobId)} aria-current={selectedId === job.jobId ? "true" : undefined}>
               <span className="job-item-top"><strong>{job.targetUrl}</strong><span className="job-index">#{job.jobId.slice(0, 8)}</span></span>
@@ -403,7 +401,7 @@ function Dashboard({ user, onLogout, onAuthFailure }: { user: SessionUser; onLog
 
       <section className="panel detail-panel" aria-labelledby="detail-title">
         <div className="panel-heading"><div><p className="eyebrow">03 / TINJAUAN</p><h2 id="detail-title">Detail & hasil</h2></div>{detailLoading && <span className="updating" role="status">Memperbarui…</span>}</div>
-        {!selectedJob ? <div className="empty-state"><strong>Pilih sebuah job.</strong><span>Status dan hasil simulasi akan tampil di sini.</span></div>
+        {!selectedJob ? <div className="empty-state"><strong>Pilih sebuah job.</strong><span>Status dan hasil QA akan tampil di sini.</span></div>
           : <>
             <div className="detail-intro"><span className="detail-kicker">JOB #{selectedJob.jobId.slice(0, 8)}</span><h3>{selectedJob.targetUrl}</h3><p>Dibuat {dateLabel(selectedJob.createdAt)} · versi {selectedJob.version}</p></div>
             <div className="status-grid">
@@ -413,21 +411,21 @@ function Dashboard({ user, onLogout, onAuthFailure }: { user: SessionUser; onLog
             {selectedJob.leaseExpiresAt && !isTerminal(selectedJob) && <p className="lease-note">Lease pengiriman sampai {dateLabel(selectedJob.leaseExpiresAt)}. Kelayakan aksi diputuskan oleh server.</p>}
             {selectedJob.lastError && <div className="job-error" role="alert"><strong>Kesalahan terakhir</strong><p>{selectedJob.lastError.message} ({selectedJob.lastError.code})</p></div>}
             <div className="actions">
-              {selectedJob.deliveryStatus === "not_sent" && <button type="button" className="button button-primary" onClick={() => void handleJobAction("dispatch", selectedJob)} disabled={busy !== null || stale || isTerminal(selectedJob)}>{busy === "dispatch" ? "Mengirim…" : "Kirim ke simulator"}</button>}
+              {selectedJob.deliveryStatus === "not_sent" && <button type="button" className="button button-primary" onClick={() => void handleJobAction("dispatch", selectedJob)} disabled={busy !== null || stale || isTerminal(selectedJob)}>{busy === "dispatch" ? "Mengirim…" : "Kirim ke QA"}</button>}
               {!isTerminal(selectedJob) && (selectedJob.deliveryStatus === "failed" || selectedJob.deliveryStatus === "unknown" || selectedJob.deliveryStatus === "sending") && <button type="button" className="button button-primary" onClick={() => void handleJobAction("retry", selectedJob)} disabled={busy !== null || stale || (selectedJob.leaseExpiresAt !== null && Date.parse(selectedJob.leaseExpiresAt) > Date.now()) || (selectedJob.deliveryStatus === "sending" && selectedJob.leaseExpiresAt === null)}>{busy === "retry" ? "Mencoba ulang…" : "Retry pengiriman"}</button>}
               {!isTerminal(selectedJob) && (selectedJob.deliveryStatus === "unknown" || selectedJob.deliveryStatus === "accepted" || selectedJob.deliveryStatus === "sending") && <button type="button" className="button button-quiet" onClick={() => void handleJobAction("reconcile", selectedJob)} disabled={busy !== null || stale || !canReconcile(selectedJob)}>{busy === "reconcile" ? "Merekonsiliasi…" : "Rekonsiliasi"}</button>}
               <button type="button" className="button button-quiet" onClick={() => void loadDetail(selectedJob.jobId, true)} disabled={detailLoading}>Perbarui detail</button>
             </div>
             <div className="detail-section"><h4>Cakupan</h4><p className="preserve-lines">{selectedJob.scope}</p></div>
             <div className="detail-section"><h4>Kriteria penerimaan</h4><ol className="criteria-list">{selectedJob.acceptanceCriteria.map((criterion, index) => <li key={index}>{criterion}</li>)}</ol></div>
-            <div className="detail-section results-section"><div className="results-heading"><h4>Hasil simulasi</h4><span>{stale ? "DATA LAMA" : selectedJob.result ? "HASIL DITERIMA" : "MENUNGGU HASIL"}</span></div>
+            <div className="detail-section results-section"><div className="results-heading"><h4>Hasil QA</h4><span>{stale ? "DATA LAMA" : selectedJob.result ? "HASIL DITERIMA" : "MENUNGGU HASIL"}</span></div>
               {selectedJob.result ? <>
                 <div className="result-block"><h5>Ringkasan</h5><p className="preserve-lines">{selectedJob.result.summary}</p></div>
                 <div className="result-block"><h5>Pemeriksaan</h5><ul className="checks-list">{selectedJob.result.checks.map(check => <li key={check.criterionIndex}><span className={`outcome outcome-${check.outcome}`}>{outcomeLabel[check.outcome]}</span><div><strong>{selectedJob.acceptanceCriteria[check.criterionIndex] ?? `Kriteria ${check.criterionIndex + 1}`}</strong><p className="preserve-lines">{check.note || "Tanpa catatan."}</p></div></li>)}</ul></div>
-                <div className="result-block"><h5>Temuan</h5>{selectedJob.result.findings.length === 0 ? <p>Tidak ada temuan yang dilaporkan simulator.</p> : <ol className="findings-list">{selectedJob.result.findings.map((finding, index) => <li key={index}><strong>{finding.title}</strong><dl><dt>Langkah</dt><dd className="preserve-lines">{finding.steps}</dd><dt>Harapan</dt><dd className="preserve-lines">{finding.expected}</dd><dt>Aktual</dt><dd className="preserve-lines">{finding.actual}</dd></dl></li>)}</ol>}</div>
+                <div className="result-block"><h5>Temuan</h5>{selectedJob.result.findings.length === 0 ? <p>Tidak ada temuan yang dilaporkan.</p> : <ol className="findings-list">{selectedJob.result.findings.map((finding, index) => <li key={index}><strong>{finding.title}</strong><dl><dt>Langkah</dt><dd className="preserve-lines">{finding.steps}</dd><dt>Harapan</dt><dd className="preserve-lines">{finding.expected}</dd><dt>Aktual</dt><dd className="preserve-lines">{finding.actual}</dd></dl></li>)}</ol>}</div>
               </> : <p className="result-empty">Belum ada hasil untuk job ini. Status eksekusi tidak berarti hasil QA telah disetujui.</p>}
             </div>
-            <p className="fineprint detail-footnote">Hasil ini hanya keluaran simulator agent, bukan penilaian QA atas situs target.</p>
+            <p className="fineprint detail-footnote">Hasil di atas berasal dari eksekusi agent QA OpenBot.</p>
           </>}
       </section>
     </div>

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Dashboard QA | Simulasi Agent",
-  description: "Dashboard internal untuk simulasi job QA dengan penyimpanan Supabase.",
+  title: "Dashboard QA | OpenBot",
+  description: "Dashboard internal untuk mengirim permintaan pengujian ke agent QA OpenBot dan memantau hasilnya.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
