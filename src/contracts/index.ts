@@ -34,7 +34,7 @@ export type Job = CreateJob & {
 };
 export type ExecutionEnvelope = CreateJob & { mode: "simulation"; jobId: string; executionId: string };
 export const callbackSchema = z.strictObject({
-  schemaVersion: z.literal(1), mode: z.literal("simulation"), eventId: uuidSchema,
+  schemaVersion: z.literal(1), mode: z.enum(["agent", "simulation"]), eventId: uuidSchema,
   jobId: uuidSchema, executionId: uuidSchema, sequence: z.union([z.literal(1), z.literal(2)]),
   eventType: z.enum(["running", "succeeded", "failed"]), result: resultSchema.nullable(), error: safeErrorSchema.nullable(),
 }).superRefine((v, c) => {

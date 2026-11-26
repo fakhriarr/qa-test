@@ -36,8 +36,27 @@ export class Store {
   claim(id: string, action: "dispatch" | "retry" | "reconcile") {
     return this.rpc<Claim>("qa_claim_dispatch", { p_job_id: id, p_retry: action === "retry", p_reconcile: action === "reconcile" });
   }
+  claimWebhook(id: string, callbackTokenHash: string, action: "dispatch" | "retry" | "reconcile") {
+    return this.rpc<Claim>("qa_claim_webhook_dispatch", {
+      p_job_id: id, p_callback_token_hash: callbackTokenHash, p_retry: action === "retry", p_reconcile: action === "reconcile",
+    });
+  }
   outcome(id: string, attemptId: string, outcome: "accepted" | "rejected" | "unknown") {
     return this.rpc<{job: Job; applied: boolean}>("qa_record_outcome", { p_job_id: id, p_attempt_id: attemptId, p_outcome: outcome });
+  }
+  webhookOutcome(
+    id: string,
+    attemptId: string,
+    outcome: "accepted" | "rejected" | "unknown",
+    errorCode: string | null = null,
+    errorMessage: string | null = null,
+  ) {
+    return this.rpc<{job: Job; applied: boolean}>("qa_record_webhook_outcome", {
+      p_job_id: id, p_attempt_id: attemptId, p_outcome: outcome, p_error_code: errorCode, p_error_message: errorMessage,
+    });
+  }
+  agentCallback(callbackToken: string, event: Callback) {
+    return this.rpc<CallbackResponse>("qa_apply_agent_callback", { p_callback_token: callbackToken, p_event: event });
   }
   accept(job: Job) { return this.rpc<{kind: "accepted"; executionId: string}>("qa_sim_accept", { p_job_id: job.jobId, p_execution_id: job.executionId }); }
   complete(executionId: string) { return this.rpc<void>("qa_sim_complete", { p_execution_id: executionId }); }

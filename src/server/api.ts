@@ -2,13 +2,13 @@ import "./only";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createJobSchema, loginSchema, passwordSchema, uuidSchema } from "../contracts";
-import { createSession, type Session } from "./auth";
-import { readConfig } from "./config";
-import { body, parse, trustedRequest } from "./boundary";
+import { createPublicClient, createSession, type Session } from "./auth";
+import { readConfig, readWebhookConfig } from "./config";
+import { body, parse, rawJsonBody, trustedHost, trustedRequest } from "./boundary";
 import { Fault, assert } from "./errors";
 import { Store } from "./store";
-import { Simulator } from "./simulator";
 import { Service } from "./service";
+import { WebhookDispatcher, verifyAuthenticatedCallback } from "./webhook";
 
 const empty = z.strictObject({});
 export async function handleRequest(request: Request): Promise<Response> {
@@ -17,9 +17,29 @@ export async function handleRequest(request: Request): Promise<Response> {
     "X-QA-Notice": "SIMULASI AGENT - bukan integrasi QA OpenBot; penyimpanan Supabase", "X-Request-Id": requestId };
   const reply = (value: unknown, status = 200) => Response.json(value, { status, headers });
   try {
-    const config = readConfig(); trustedRequest(request, config.origin);
+    const config = readConfig();
     const url = new URL(request.url);
-    if (url.pathname.startsWith("/api/v1/callbacks/")) throw new Fault(503, "CALLBACK_DISABLED", "Callback eksternal belum diaktifkan. Simulator menggunakan jalur internal.");
+    if (url.pathname === "/api/v1/callbacks/qa") {
+      trustedHost(request, config.origin);
+      assert(!url.search, 400, "INVALID_REQUEST", "Parameter query tidak didukung.");
+      assert(request.method === "POST", 405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");
+      const webhookConfig = readWebhookConfig();
+      const { rawBytes, json } = await rawJsonBody(request);
+      const { event, callbackToken } = verifyAuthenticatedCallback({
+        webhookConfig,
+        timestampHeader: request.headers.get("x-qa-timestamp"),
+        signatureHeader: request.headers.get("x-qa-signature"),
+        rawBody: rawBytes,
+        parsedJson: json,
+      });
+      const store = new Store(createPublicClient(config));
+      return reply(await store.agentCallback(callbackToken, event), 200);
+    }
+    if (url.pathname.startsWith("/api/v1/callbacks/")) {
+      trustedHost(request, config.origin);
+      throw new Fault(503, "CALLBACK_DISABLED", "Callback simulator dinonaktifkan. Gunakan endpoint callback QA resmi.");
+    }
+    trustedRequest(request, config.origin);
     assert(url.pathname === "/api/v1/auth/confirm" || !url.search, 400, "INVALID_REQUEST", "Parameter query tidak didukung.");
     session = createSession(request, config);
     const send = (value: unknown, status = 200) => session!.apply(reply(value, status));
@@ -59,7 +79,7 @@ export async function handleRequest(request: Request): Promise<Response> {
       assert(!error, 400, "PASSWORD_UPDATE_FAILED", "Password belum diperbarui. Periksa kebijakan password atau hubungi operator.");
       return send({ updated: true });
     }
-    const store = new Store(session.client), service = new Service(store, new Simulator(store));
+    const store = new Store(session.client);
     if (url.pathname === "/api/v1/jobs") {
       if (request.method === "GET") return send({ mode: "simulation", jobs: await store.list() });
       if (request.method === "POST") {
@@ -75,6 +95,9 @@ export async function handleRequest(request: Request): Promise<Response> {
       if (!match[2] && request.method === "GET") return send({ job: await store.job(id) });
       if (match[2] && request.method === "POST") {
         await body(request, empty);
+        // Validate webhook configuration BEFORE claiming DB lease so job stays not_sent if unconfigured.
+        const webhookConfig = readWebhookConfig();
+        const service = new Service(store, new WebhookDispatcher(config.origin, webhookConfig));
         return send({ job: await service.dispatch(id, match[2] as "dispatch" | "retry" | "reconcile") }, 202);
       }
       throw new Fault(405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");

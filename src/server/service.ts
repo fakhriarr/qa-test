@@ -1,24 +1,53 @@
 import "./only";
-import { Store } from "./store";
-import { Simulator } from "./simulator";
-import { Fault } from "./errors";
+import type { Job } from "../contracts";
+import type { Claim } from "./store";
+import { Fault, assert } from "./errors";
+import { WebhookDispatcher, deriveCallbackToken, hashCallbackToken } from "./webhook";
+
+export interface JobWebhookStore {
+  job(id: string): Promise<Job>;
+  claimWebhook(id: string, callbackTokenHash: string, action: "dispatch" | "retry" | "reconcile"): Promise<Claim>;
+  webhookOutcome(
+    id: string,
+    attemptId: string,
+    outcome: "accepted" | "rejected" | "unknown",
+    errorCode?: string | null,
+    errorMessage?: string | null,
+  ): Promise<{ job: Job; applied: boolean }>;
+}
+
 export class Service {
-  constructor(readonly store: Store, readonly simulator: Simulator) {}
-  async dispatch(id: string, action: "dispatch" | "retry" | "reconcile") {
-    const claim = await this.store.claim(id, action);
-    try {
-      if (claim.requiresReconciliation) {
-        const lookup = await this.store.lookup(claim.job.executionId);
-        if (lookup.kind === "not_found") await this.simulator.receive(claim.job);
-      } else await this.simulator.receive(claim.job);
-      await this.simulator.resume(claim.job.executionId);
-      return (await this.store.outcome(id, claim.attemptId, "accepted")).job;
-    } catch (error) {
-      // Failure can occur after a remote commit: never infer rejection or change execution identity.
-      try { await this.store.outcome(id, claim.attemptId, "unknown"); }
-      catch { throw new Fault(503, "RECONCILIATION_REQUIRED", "Koneksi data terputus. Muat ulang; rekonsiliasi setelah lease berakhir."); }
-      if (error instanceof Fault && [401, 403, 404, 409].includes(error.status)) throw error;
-      throw new Fault(503, "RECONCILIATION_REQUIRED", "Outcome belum pasti. Muat ulang status lalu lakukan rekonsiliasi.");
+  constructor(readonly store: JobWebhookStore, readonly dispatcher: WebhookDispatcher) {}
+
+  async dispatch(id: string, action: "dispatch" | "retry" | "reconcile"): Promise<Job> {
+    const current = await this.store.job(id);
+    const callbackToken = deriveCallbackToken(this.dispatcher.config.callbackKeyMaterial, current.jobId, current.executionId);
+    const callbackTokenHash = hashCallbackToken(callbackToken);
+    const claim = await this.store.claimWebhook(id, callbackTokenHash, action);
+    assert(claim.job.executionId === current.executionId, 409, "EXECUTION_MISMATCH", "Identitas eksekusi job berubah.");
+
+    const recordSafely = async (
+      outcome: "accepted" | "rejected" | "unknown",
+      code?: string | null,
+      message?: string | null,
+    ) => {
+      try {
+        return await this.store.webhookOutcome(id, claim.attemptId, outcome, code ?? null, message ?? null);
+      } catch (error) {
+        if (error instanceof Fault && [401, 403].includes(error.status)) throw error;
+        throw new Fault(503, "RECONCILIATION_REQUIRED", "Koneksi data terputus. Muat ulang; rekonsiliasi setelah lease berakhir.");
+      }
+    };
+
+    const sendResult = await this.dispatcher.send(claim.job, callbackToken);
+    if (sendResult.outcome === "accepted") {
+      return (await recordSafely("accepted")).job;
     }
+    if (sendResult.outcome === "rejected") {
+      return (await recordSafely("rejected", sendResult.code, sendResult.message)).job;
+    }
+    // Ambiguous 5xx/429/network/timeout: never infer rejection or replace execution identity.
+    await recordSafely("unknown", "DELIVERY_UNKNOWN", "Outcome pengiriman webhook belum diketahui; lakukan rekonsiliasi.");
+    throw new Fault(503, "RECONCILIATION_REQUIRED", "Outcome belum pasti. Muat ulang status lalu lakukan rekonsiliasi.");
   }
 }
