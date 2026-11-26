@@ -18,17 +18,20 @@ export function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   assert(result.success, 400, "INVALID_REQUEST", "Field, tipe, atau batas nilai tidak sesuai kontrak.");
   return result.data;
 }
-export async function rawJsonBody(request: Request): Promise<{ rawBytes: Buffer; json: unknown }> {
-  assert(request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() === "application/json", 415, "JSON_REQUIRED", "Content-Type harus application/json.");
+export async function boundedBytes(request: Request, limit: number): Promise<Buffer> {
   const reader = request.body?.getReader();
   const chunks: Uint8Array[] = []; let size = 0;
   if (reader) while (true) {
     const { value, done } = await reader.read(); if (done) break;
     size += value.byteLength;
-    if (size > 65536) { await reader.cancel(); throw new Fault(413, "BODY_TOO_LARGE", "Body melebihi 64 KiB."); }
+    if (size > limit) { await reader.cancel(); throw new Fault(413, "BODY_TOO_LARGE", "Body melebihi batas."); }
     chunks.push(value);
   }
-  const rawBytes = Buffer.concat(chunks);
+  return Buffer.concat(chunks, size);
+}
+export async function rawJsonBody(request: Request): Promise<{ rawBytes: Buffer; json: unknown }> {
+  assert(request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() === "application/json", 415, "JSON_REQUIRED", "Content-Type harus application/json.");
+  const rawBytes = await boundedBytes(request, 65536);
   let json: unknown;
   try { json = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(rawBytes)); }
   catch { throw new Fault(400, "INVALID_JSON", "JSON tidak valid."); }

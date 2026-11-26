@@ -1,6 +1,7 @@
 import "./only";
 import { createHash, createHmac, hkdfSync, timingSafeEqual } from "node:crypto";
 import { callbackSchema, type Callback, type Job } from "../contracts";
+import type { DeliverableKind, ValidatedSubmission } from "../contracts/requests";
 import type { WebhookConfig } from "./config";
 import { parse } from "./boundary";
 import { Fault } from "./errors";
@@ -27,12 +28,18 @@ export function signCallbackPayload(callbackToken: string, timestamp: string, ra
   return "sha256=" + createHmac("sha256", callbackToken).update(`${timestamp}.`, "utf8").update(rawBody).digest("hex");
 }
 
+export type DispatchRequestDetails = Omit<ValidatedSubmission, "deliverables" | "acceptanceCriteria" | "targetUrl"> & {
+  deliverables: { deliverableId: string; kind: DeliverableKind; uploadUrl: string; uploadToken: string }[];
+  securityPolicy: "defensive_only";
+};
+
 export function buildOpenBotDispatchRequest(params: {
   appOrigin: string;
   webhookConfig: WebhookConfig;
   job: Job;
   callbackToken: string;
   nowMs?: number;
+  requestDetails?: DispatchRequestDetails;
 }) {
   const nowMs = params.nowMs ?? Date.now();
   const timestamp = String(Math.floor(nowMs / 1000));
@@ -48,6 +55,7 @@ export function buildOpenBotDispatchRequest(params: {
       scope: params.job.scope,
       acceptanceCriteria: params.job.acceptanceCriteria,
       deliverables: ["summary", "checks", "findings"] as const,
+      ...(params.requestDetails ? { request: params.requestDetails } : {}),
       callback: {
         url: `${params.appOrigin}/api/v1/callbacks/qa`,
         token: params.callbackToken,
@@ -119,13 +127,14 @@ export class WebhookDispatcher {
     private readonly now: () => number = Date.now,
   ) {}
 
-  async send(job: Job, callbackToken: string): Promise<WebhookSendOutcome> {
+  async send(job: Job, callbackToken: string, requestDetails?: DispatchRequestDetails): Promise<WebhookSendOutcome> {
     const req = buildOpenBotDispatchRequest({
       appOrigin: this.appOrigin,
       webhookConfig: this.config,
       job,
       callbackToken,
       nowMs: this.now(),
+      requestDetails,
     });
     if (req.bodyBytes.byteLength > WEBHOOK_MAX_BODY_BYTES) {
       return {

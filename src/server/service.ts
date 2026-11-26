@@ -2,7 +2,7 @@ import "./only";
 import type { Job } from "../contracts";
 import type { Claim } from "./store";
 import { Fault, assert } from "./errors";
-import { WebhookDispatcher, deriveCallbackToken, hashCallbackToken } from "./webhook";
+import { WebhookDispatcher, deriveCallbackToken, hashCallbackToken, type DispatchRequestDetails } from "./webhook";
 
 export interface JobWebhookStore {
   job(id: string): Promise<Job>;
@@ -19,9 +19,12 @@ export interface JobWebhookStore {
 export class Service {
   constructor(readonly store: JobWebhookStore, readonly dispatcher: WebhookDispatcher) {}
 
-  async dispatch(id: string, action: "dispatch" | "retry" | "reconcile"): Promise<Job> {
+  async dispatch(id: string, action: "dispatch" | "retry" | "reconcile",
+    details?: (job: Job, callbackToken: string) => Promise<DispatchRequestDetails | undefined>,
+  ): Promise<Job> {
     const current = await this.store.job(id);
     const callbackToken = deriveCallbackToken(this.dispatcher.config.callbackKeyMaterial, current.jobId, current.executionId);
+    const requestDetails = await details?.(current, callbackToken);
     const callbackTokenHash = hashCallbackToken(callbackToken);
     const claim = await this.store.claimWebhook(id, callbackTokenHash, action);
     assert(claim.job.executionId === current.executionId, 409, "EXECUTION_MISMATCH", "Identitas eksekusi job berubah.");
@@ -39,7 +42,7 @@ export class Service {
       }
     };
 
-    const sendResult = await this.dispatcher.send(claim.job, callbackToken);
+    const sendResult = await this.dispatcher.send(claim.job, callbackToken, requestDetails);
     if (sendResult.outcome === "accepted") {
       return (await recordSafely("accepted")).job;
     }

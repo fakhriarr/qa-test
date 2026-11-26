@@ -1,7 +1,7 @@
 import { lstatSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 export const publicRoots = ['src', 'supabase', 'scripts', 'tests', '.github/workflows', 'public'];
-export const publicRootFiles = ['package.json', 'package-lock.json', 'tsconfig.json', 'next.config.ts', 'next-env.d.ts', '.gitignore', '.env.example', 'README.md'];
+export const publicRootFiles = ['package.json', 'package-lock.json', 'tsconfig.json', 'next.config.ts', 'next-env.d.ts', '.gitignore', '.env.example', 'README.md', 'docs/qa-requests-api.md'];
 export const requiredWebhookFiles = [
   'src/app/api/v1/callbacks/qa/route.ts',
   'src/server/webhook.ts',

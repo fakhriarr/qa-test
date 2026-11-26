@@ -98,19 +98,20 @@ export default function LoginPage() {
       {message && <p className="notice notice-error" role="alert">{message}</p>}
 
       {view === "login" && <form onSubmit={handleLogin} noValidate>
-        <label htmlFor="login-email">Email</label>
-        <input id="login-email" type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required maxLength={254} />
-        <label htmlFor="login-password">Password</label>
-        <input id="login-password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required />
+        <label className="field-label" htmlFor="login-email">Email</label>
+        <input id="login-email" className="input" type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required maxLength={254} />
+        <label className="field-label" htmlFor="login-password">Password</label>
+        <input id="login-password" className="input" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required />
+        <p className="field-help">Belum punya password? Minta tautan undangan ke operator. Pendaftaran mandiri tidak tersedia.</p>
         <button className="button button-primary auth-submit" type="submit" disabled={busy}>{busy ? "Memeriksa akun…" : "Masuk"}</button>
       </form>}
 
       {view === "invited" && <form onSubmit={handlePassword} noValidate>
         {email && <p className="account-hint">Akun: {email}</p>}
-        <label htmlFor="new-password">Password baru</label>
-        <input id="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={event => setNewPassword(event.target.value)} required minLength={12} />
-        <label htmlFor="confirm-password">Ulangi password baru</label>
-        <input id="confirm-password" type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} required minLength={12} />
+        <label className="field-label" htmlFor="new-password">Password baru</label>
+        <input id="new-password" className="input" type="password" autoComplete="new-password" value={newPassword} onChange={event => setNewPassword(event.target.value)} required minLength={12} />
+        <label className="field-label" htmlFor="confirm-password">Ulangi password baru</label>
+        <input id="confirm-password" className="input" type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} required minLength={12} />
         <p className="field-help">Minimal 12 karakter; kebijakan Supabase dapat mensyaratkan lebih.</p>
         <button className="button button-primary auth-submit" type="submit" disabled={busy}>{busy ? "Menyimpan…" : "Simpan password"}</button>
       </form>}

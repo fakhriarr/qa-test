@@ -10,6 +10,11 @@ import { Store } from "./store";
 import { Service } from "./service";
 import { WebhookDispatcher, verifyAuthenticatedCallback } from "./webhook";
 
+import { requestUrl } from "../contracts/requests";
+import { artifactPath, artifactToken, bindArtifactUploads, deliverableProgress, downloadArtifact, jobArtifacts, uploadArtifact } from "./artifacts";
+import { discoverLinks } from "./discovery";
+import { handleDrafts, REQUEST_SCOPE_MARKER, submittedRequest } from "./requests";
+
 const empty = z.strictObject({});
 export async function handleRequest(request: Request): Promise<Response> {
   const requestId = randomUUID(); let session: Session | undefined;
@@ -34,6 +39,14 @@ export async function handleRequest(request: Request): Promise<Response> {
       });
       const store = new Store(createPublicClient(config));
       return reply(await store.agentCallback(callbackToken, event), 200);
+    }
+    const artifactMatch = url.pathname.match(/^\/api\/v1\/callbacks\/qa\/([^/]+)\/executions\/([^/]+)\/deliverables\/([^/]+)$/);
+    if (artifactMatch) {
+      trustedHost(request, config.origin);
+      assert(!url.search, 400, "INVALID_REQUEST", "Parameter query tidak didukung.");
+      assert(request.method === "PUT", 405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");
+      const [jobId, executionId, itemId] = parse(z.tuple([uuidSchema, uuidSchema, uuidSchema]), artifactMatch.slice(1));
+      return reply(await uploadArtifact(request, config, jobId, executionId, itemId));
     }
     if (url.pathname.startsWith("/api/v1/callbacks/")) {
       trustedHost(request, config.origin);
@@ -80,6 +93,29 @@ export async function handleRequest(request: Request): Promise<Response> {
       return send({ updated: true });
     }
     const store = new Store(session.client);
+    if (url.pathname === "/api/v1/discovery") {
+      assert(request.method === "POST", 405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");
+      const { targetUrl } = await body(request, z.strictObject({ targetUrl: requestUrl }));
+      return send({ candidates: await discoverLinks(targetUrl) });
+    }
+    const draftMatch = url.pathname.match(/^\/api\/v1\/drafts(?:\/([^/]+)(?:\/(submit))?)?$/);
+    if (draftMatch) {
+      const draftId = draftMatch[1] ? parse(uuidSchema, draftMatch[1]) : undefined;
+      const result = await handleDrafts(request, session.client, draftId, Boolean(draftMatch[2]));
+      return send(result.payload, result.status);
+    }
+    const resultsMatch = url.pathname.match(/^\/api\/v1\/jobs\/([^/]+)\/deliverables(?:\/([^/]+))?$/);
+    if (resultsMatch) {
+      assert(request.method === "GET", 405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");
+      const jobId = parse(uuidSchema, resultsMatch[1]);
+      if (resultsMatch[2]) {
+        const itemId = parse(uuidSchema, resultsMatch[2]);
+        return session.apply(await downloadArtifact(session.client, jobId, itemId));
+      }
+      const job = await store.job(jobId);
+      const details = job.scope === REQUEST_SCOPE_MARKER ? await submittedRequest(session.client, jobId) : null;
+      return send({ request: details, ...(await deliverableProgress(session.client, job)) });
+    }
     if (url.pathname === "/api/v1/jobs") {
       if (request.method === "GET") return send({ mode: "simulation", jobs: await store.list() });
       if (request.method === "POST") {
@@ -98,7 +134,26 @@ export async function handleRequest(request: Request): Promise<Response> {
         // Validate webhook configuration BEFORE claiming DB lease so job stays not_sent if unconfigured.
         const webhookConfig = readWebhookConfig();
         const service = new Service(store, new WebhookDispatcher(config.origin, webhookConfig));
-        return send({ job: await service.dispatch(id, match[2] as "dispatch" | "retry" | "reconcile") }, 202);
+        const job = await service.dispatch(id, match[2] as "dispatch" | "retry" | "reconcile", async (current, token) => {
+          if (current.scope !== REQUEST_SCOPE_MARKER) return;
+          const details = await submittedRequest(store.client, id);
+          assert(details, 503, "REQUESTS_UNCONFIGURED", "Data permintaan belum tersedia.");
+          const items = await jobArtifacts(store.client, current);
+          assert(items.length === details.deliverables.length, 503, "REQUESTS_UNCONFIGURED", "Daftar deliverable belum tersedia.");
+          await bindArtifactUploads(store.client, current, items, webhookConfig.callbackKeyMaterial);
+          return {
+            accessRequiresLogin: details.accessRequiresLogin, accessNotes: details.accessNotes,
+            environment: details.environment, scopeUrls: details.scopeUrls,
+            suggestions: details.suggestions, prohibitions: details.prohibitions,
+            securityPolicy: "defensive_only",
+            deliverables: items.map(item => ({
+              deliverableId: item.deliverable_id, kind: item.kind,
+              uploadUrl: config.origin + artifactPath(current.jobId, current.executionId, item.deliverable_id),
+              uploadToken: artifactToken(token, item.deliverable_id),
+            })),
+          };
+        });
+        return send({ job }, 202);
       }
       throw new Fault(405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");
     }

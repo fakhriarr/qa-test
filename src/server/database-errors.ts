@@ -4,11 +4,12 @@ const known = new Set([
   "AUTH_REQUIRED", "UNAUTHORIZED_CALLBACK", "MEMBERSHIP_REQUIRED", "INVALID_REQUEST", "INVALID_CALLBACK", "INVALID_CHECKS",
   "JOB_NOT_FOUND", "IDEMPOTENCY_CONFLICT", "DISPATCH_IN_PROGRESS", "TERMINAL_JOB", "ACTION_NOT_ALLOWED",
   "ATTEMPT_NOT_FOUND", "EXECUTION_MISMATCH", "RECEIVER_CONFLICT", "DISPATCH_REQUIRED", "EXECUTION_NOT_FOUND",
+  "DRAFT_NOT_FOUND", "DRAFT_CONFLICT", "ARTIFACT_NOT_FOUND", "ARTIFACT_CONFLICT", "ARTIFACT_EXECUTION_INACTIVE", "ARTIFACT_STORAGE_UNAVAILABLE",
   "EVENT_CONFLICT", "EVENT_NOT_FOUND", "TERMINAL_CONFLICT", "RECEIPT_REQUIRED",
 ]);
 export function databaseFault(error: { code?: string; message?: string }): Fault {
   const code = error.message ?? "";
-  const status = error.code?.match(/^PT(400|401|403|404|409)$/)?.[1];
+  const status = error.code?.match(/^PT(400|401|403|404|409|503)$/)?.[1];
   const messages: Record<string, string> = {
     AUTH_REQUIRED: "Sesi berakhir. Silakan login kembali.", UNAUTHORIZED_CALLBACK: "Autentikasi callback tidak valid.",
     MEMBERSHIP_REQUIRED: "Akun belum diizinkan mengakses Dashboard QA.",
