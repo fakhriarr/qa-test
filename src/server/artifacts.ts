@@ -121,6 +121,15 @@ export async function uploadArtifact(request: Request, config: AppConfig, job: s
   return { deliverable: dto(finished.data, false), replay: Boolean(uploadError) };
 }
 
+async function downloadWithItemCapability(config: AppConfig, row: ArtifactRow) {
+  const key = readWebhookConfig().callbackKeyMaterial;
+  const client = createPublicClient(config, {
+    "x-qa-storage-capability": storageCapability(key, row.job_id, row.execution_id, row.deliverable_id),
+  });
+  const { data, error } = await client.storage.from(bucket).download(storagePath(row));
+  return error ? null : data;
+}
+
 export async function downloadArtifact(
   client: SupabaseClient, config: AppConfig, ownerId: string, jobId: string, itemId: string,
 ) {
@@ -141,8 +150,26 @@ export async function downloadArtifact(
     headers: { apikey: config.publishableKey, Authorization: `Bearer ${auth.session.access_token}` },
     cache: "no-store", redirect: "error", signal: AbortSignal.timeout(8000),
   }).catch(() => null);
-  assert(stored?.ok && stored.body, 503, "ARTIFACT_STORAGE_UNAVAILABLE", "File belum dapat diunduh dari penyimpanan. Coba lagi.");
-  const bytes = await boundedBytes(stored, ARTIFACT_MAX_BYTES).catch(() => {
+  let file: Response | null = stored;
+  if (stored && [400, 403, 404].includes(stored.status)) {
+    // The session and owner-scoped ready row have already been checked. The
+    // fallback is constrained to the same immutable object by Storage RLS.
+    const itemFile = await downloadWithItemCapability(config, data).catch(() => null);
+    if (itemFile) {
+      await stored.body?.cancel().catch(() => {});
+      file = new Response(itemFile);
+    }
+  }
+  if (file && !file.ok) {
+    const body = await boundedBytes(file, 4096).then(bytes => JSON.parse(bytes.toString("utf8"))).catch(() => null);
+    const rawCode = body?.code ?? body?.error;
+    const known = ["NoSuchKey", "NoSuchBucket", "AccessDenied", "InvalidJWT", "InvalidRequest", "not_found", "Unauthorized"];
+    const reason = known.find(code => code === rawCode);
+    throw new Fault(503, "ARTIFACT_STORAGE_REJECTED",
+      `Penyimpanan menolak unduhan (HTTP ${file.status}${reason ? `, ${reason}` : ""}).`);
+  }
+  assert(file?.body, 503, "ARTIFACT_STORAGE_UNAVAILABLE", "Penyimpanan tidak mengembalikan file. Coba lagi.");
+  const bytes = await boundedBytes(file, ARTIFACT_MAX_BYTES).catch(() => {
     throw new Fault(503, "ARTIFACT_STORAGE_UNAVAILABLE", "File dari penyimpanan tidak dapat dibaca.");
   });
   assert(data.file_name && data.size_bytes === bytes.length && data.sha256 === checksum(bytes) &&
