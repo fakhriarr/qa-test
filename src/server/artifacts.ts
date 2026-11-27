@@ -357,6 +357,67 @@ async function downloadWithItemCapability(config: AppConfig, identity: Pick<Arti
   return error ? null : data;
 }
 
+export async function readVerifiedArtifactVersionBytes(
+  client: SupabaseClient, config: AppConfig, ownerId: string, jobId: string, itemId: string, versionId: string,
+): Promise<{
+  deliverableId: string; versionId: string; versionNumber: number; kind: DeliverableKind;
+  fileName: string; sizeBytes: number; sha256: string; bytes: Buffer;
+}> {
+  const [{ data: version, error: versionError }, { data: item, error: itemError }] = await Promise.all([
+    client.from("qa_artifact_versions").select(versionColumns)
+      .eq("owner_id", ownerId).eq("job_id", jobId).eq("deliverable_id", itemId).eq("version_id", versionId)
+      .not("ready_at", "is", null).maybeSingle<ArtifactVersionRow>(),
+    client.from("qa_artifacts").select("kind")
+      .eq("owner_id", ownerId).eq("job_id", jobId).eq("deliverable_id", itemId)
+      .maybeSingle<{ kind: DeliverableKind }>(),
+  ]);
+  if (versionError) throw databaseFault(versionError);
+  if (itemError) throw databaseFault(itemError);
+  assert(version && item, 404, "ARTIFACT_NOT_FOUND", "Versi file tidak ditemukan.");
+
+  const { data: auth, error: authError } = await client.auth.getSession();
+  assert(!authError && auth.session?.access_token && auth.session.user.id === ownerId,
+    401, "AUTH_REQUIRED", "Sesi berakhir. Silakan masuk kembali.");
+  const path = version.object_name.split("/").map(encodeURIComponent).join("/");
+  const url = new URL(`/storage/v1/object/authenticated/${bucket}/${path}`, config.supabaseUrl);
+  const stored = await fetch(url, {
+    headers: { apikey: config.publishableKey, Authorization: `Bearer ${auth.session.access_token}` },
+    cache: "no-store", redirect: "error", signal: AbortSignal.timeout(8000),
+  }).catch(() => null);
+  let file: Response | null = stored;
+  if (stored && [400, 403, 404].includes(stored.status)) {
+    const itemFile = await downloadWithItemCapability(config, version, version.object_name).catch(() => null);
+    if (itemFile) {
+      await stored.body?.cancel().catch(() => {});
+      file = new Response(itemFile);
+    }
+  }
+  if (file && !file.ok) {
+    const body = await boundedBytes(file, 4096).then(bytes => JSON.parse(bytes.toString("utf8"))).catch(() => null);
+    const rawCode = body?.code ?? body?.error;
+    const known = ["NoSuchKey", "NoSuchBucket", "AccessDenied", "InvalidJWT", "InvalidRequest", "not_found", "Unauthorized"];
+    const reason = known.find(code => code === rawCode);
+    throw new Fault(503, "ARTIFACT_STORAGE_REJECTED",
+      `Penyimpanan menolak unduhan (HTTP ${file.status}${reason ? `, ${reason}` : ""}).`);
+  }
+  assert(file?.body, 503, "ARTIFACT_STORAGE_UNAVAILABLE", "Penyimpanan tidak mengembalikan file. Coba lagi.");
+  const bytes = await boundedBytes(file, ARTIFACT_MAX_BYTES).catch(() => {
+    throw new Fault(503, "ARTIFACT_STORAGE_UNAVAILABLE", "File dari penyimpanan tidak dapat dibaca.");
+  });
+  assert(version.file_name && version.size_bytes === bytes.length && version.sha256 === checksum(bytes) &&
+    validArtifact(item.kind, version.file_name, bytes), 503, "ARTIFACT_INTEGRITY_FAILED", "Integritas file tidak dapat dikonfirmasi.");
+  return {
+    deliverableId: version.deliverable_id,
+    versionId: version.version_id,
+    versionNumber: version.version_number,
+    kind: item.kind,
+    fileName: version.file_name,
+    sizeBytes: version.size_bytes,
+    sha256: version.sha256,
+    bytes,
+  };
+}
+
 export async function downloadArtifact(
   client: SupabaseClient, config: AppConfig, ownerId: string, jobId: string, itemId: string, versionId?: string,
 ) {

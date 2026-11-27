@@ -363,6 +363,91 @@ p.sub-note{margin:6px 0 0;font-size:.8rem;line-height:1.55}
 .detail-grid aside .summary-list>div{grid-template-columns:112px minmax(0,1fr)}
 .detail-grid aside .actions{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
 
+/* ---------- Sesi pengujian fungsional terbatas (fixture) ---------- */
+.test-runs-panel{margin-top:18px}
+.fixture-pill{
+  display:inline-flex;align-items:center;padding:5px 11px;border-radius:100px;
+  border:1px solid #e6d3a6;background:var(--amber-soft);color:var(--amber);
+  font-size:.7rem;font-weight:800;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;
+}
+.fixture-banner{margin-bottom:18px}
+.test-runner-builder{display:flex;flex-direction:column;gap:14px;padding-bottom:20px;border-bottom:1px solid var(--line)}
+.runner-controls{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px}
+.runner-controls .field{margin:0}
+.case-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.case-toolbar-search{display:flex;align-items:center;gap:8px;flex:1 1 320px;min-width:0}
+.case-toolbar-search .input{min-width:0}
+.case-filter-select{flex:0 0 185px}
+.case-toolbar-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.case-toolbar-actions .button{min-height:36px;padding:7px 12px;font-size:.75rem}
+.case-picker-list{
+  list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;
+  max-height:420px;overflow:auto;
+}
+.case-picker-row{
+  display:flex;align-items:start;justify-content:space-between;gap:14px;
+  padding:11px 13px;border:1px solid var(--line);border-radius:10px;background:#fff;
+}
+.case-picker-row[data-selected=true]{border-color:#9fc0aa;background:#f5faf6}
+.case-picker-main{min-width:0;flex:1 1 auto}
+.case-picker-check{margin:0;font-size:.82rem}
+.case-picker-meta{margin:4px 0 0 27px;color:var(--muted);font-size:.74rem;line-height:1.45}
+.case-unmapped-reason{margin:5px 0 0 27px;color:var(--amber);font-size:.73rem;line-height:1.45}
+.case-picker-controls{display:flex;align-items:center;gap:10px;flex:none}
+.scenario-select{width:240px;padding:8px 34px 8px 10px;font-size:.76rem}
+.case-skip-check{margin:0;font-size:.75rem;white-space:nowrap}
+.runner-submit-bar{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  padding-top:12px;border-top:1px dashed var(--line);
+}
+.runner-submit-bar .help{margin:0}
+.runs-history-block{margin-top:20px}
+.runs-history-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.runs-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.run-row{
+  display:flex;align-items:start;justify-content:space-between;gap:14px;
+  padding:13px 15px;border:1px solid var(--line);border-radius:11px;background:var(--paper-2);
+}
+.run-row[data-selected=true]{border-color:#5f9478;background:#f2f8f3}
+.run-row-main{min-width:0;flex:1 1 auto}
+.run-row-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.run-row-meta{margin:5px 0 0;color:var(--muted);font-size:.75rem}
+.run-row-note{margin:5px 0 0;color:var(--ink-soft);font-size:.78rem}
+.run-row-actions{display:flex;align-items:center;gap:8px;flex:none;flex-wrap:wrap}
+.run-row-actions .button{min-height:36px;padding:7px 13px;font-size:.76rem}
+.run-counts{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}
+.count-pill{
+  display:inline-flex;align-items:center;padding:3px 8px;border-radius:6px;
+  border:1px solid var(--line-strong);background:#fff;font-size:.7rem;font-weight:750;
+}
+.count-passed{border-color:#b9d7c1;background:var(--green-soft);color:#1d5a3d}
+.count-failed{border-color:#e7c3b4;background:var(--red-soft);color:var(--red)}
+.count-blocked{border-color:#e6d3a6;background:var(--amber-soft);color:var(--amber)}
+.count-skipped{border-color:#d5ded6;background:#f4f6f2;color:#5d6f65}
+.count-total{color:var(--ink-soft)}
+.run-detail-block{
+  margin-top:18px;padding:18px;border:1px solid var(--line-strong);border-radius:12px;background:#fff;
+}
+.run-detail-head{display:flex;align-items:start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.run-detail-filters{margin:12px 0 14px}
+.count-filter{
+  padding:5px 11px;border-radius:100px;border:1px solid var(--line-strong);background:var(--paper-2);
+  color:var(--ink-soft);font-size:.73rem;font-weight:750;
+}
+.count-filter.is-active{border-color:var(--green);background:var(--green);color:#fff}
+.run-cases-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.run-case-card{padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--paper-2)}
+.run-case-card[data-status=failed]{border-color:#e7c3b4;background:#fff8f5}
+.run-case-card[data-status=blocked]{border-color:#e6d3a6;background:#fffdf6}
+.run-case-head{display:flex;align-items:start;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.run-case-time{color:var(--muted);font-size:.74rem;white-space:nowrap}
+.run-case-scenario{margin:6px 0 0;color:var(--muted);font-size:.74rem}
+.run-case-dl{margin:9px 0 0;display:grid;gap:6px;font-size:.78rem}
+.run-case-dl>div{display:grid;grid-template-columns:116px minmax(0,1fr);gap:10px}
+.run-case-dl dt{color:#6d8177;font-size:.7rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding-top:2px}
+.run-case-dl dd{margin:0;color:var(--ink-soft)}
+.run-case-block-reason{color:var(--amber);font-weight:700}
+
 /* ---------- Autentikasi ---------- */
 .auth-shell{min-height:100vh;display:flex;flex-direction:column;justify-content:center}
 .auth-panel{width:100%;max-width:500px;margin:0 auto;padding:clamp(24px,4vw,40px)}
@@ -422,6 +507,14 @@ p.sub-note{margin:6px 0 0;font-size:.8rem;line-height:1.55}
   .version-row{flex-wrap:wrap;align-items:stretch}
   .version-row .button{width:100%}
   .grant-input-row .button{flex:1 1 auto}
+  .runner-controls{grid-template-columns:1fr}
+  .case-toolbar-search{flex-wrap:wrap}
+  .case-filter-select{flex:1 1 100%}
+  .case-picker-row,.run-row{flex-direction:column}
+  .case-picker-controls,.run-row-actions{width:100%;flex-wrap:wrap}
+  .scenario-select{width:100%}
+  .run-row-actions .button,.runner-submit-bar .button{width:100%}
+  .run-case-dl>div{grid-template-columns:1fr;gap:3px}
   .wizard-foot{flex-direction:column;align-items:stretch}
   .foot-right{justify-content:stretch}
   .foot-right .button{flex:1 1 auto}

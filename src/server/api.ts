@@ -11,12 +11,16 @@ import { Service } from "./service";
 import { WebhookDispatcher, verifyAuthenticatedCallback } from "./webhook";
 
 import { requestUrl, revisionGrantRequestSchema } from "../contracts/requests";
+import { createTestRunSchema } from "../contracts/test-runs";
 import {
   artifactPath, artifactToken, bindArtifactUploads, deliverableProgress, downloadArtifact,
   issueArtifactRevisionGrant, jobArtifacts, uploadArtifact, uploadArtifactRevision,
 } from "./artifacts";
 import { discoverLinks } from "./discovery";
 import { handleDrafts, REQUEST_SCOPE_MARKER, submittedRequest } from "./requests";
+import {
+  createJobTestRun, executeJobTestRun, getJobTestRun, listJobTestRuns, listVersionCsvCases,
+} from "./test-runs";
 
 const empty = z.strictObject({});
 export async function handleRequest(request: Request): Promise<Response> {
@@ -122,6 +126,36 @@ export async function handleRequest(request: Request): Promise<Response> {
       const [jobId, itemId] = parse(z.tuple([uuidSchema, uuidSchema]), revisionGrantMatch.slice(1));
       const input = await body(request, revisionGrantRequestSchema);
       return send(await issueArtifactRevisionGrant(session.client, config, jobId, itemId, input.ttlMinutes), 201);
+    }
+    const versionCasesMatch = url.pathname.match(/^\/api\/v1\/jobs\/([^/]+)\/deliverables\/([^/]+)\/versions\/([^/]+)\/cases$/);
+    if (versionCasesMatch) {
+      assert(request.method === "GET", 405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");
+      const [jobId, itemId, versionId] = parse(z.tuple([uuidSchema, uuidSchema, uuidSchema]), versionCasesMatch.slice(1));
+      return send(await listVersionCsvCases(session.client, config, user.id, jobId, itemId, versionId));
+    }
+    const testRunExecuteMatch = url.pathname.match(/^\/api\/v1\/jobs\/([^/]+)\/test-runs\/([^/]+)\/execute$/);
+    if (testRunExecuteMatch) {
+      assert(request.method === "POST", 405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");
+      const [jobId, runId] = parse(z.tuple([uuidSchema, uuidSchema]), testRunExecuteMatch.slice(1));
+      await body(request, empty);
+      return send(await executeJobTestRun(session.client, jobId, runId), 200);
+    }
+    const testRunMatch = url.pathname.match(/^\/api\/v1\/jobs\/([^/]+)\/test-runs(?:\/([^/]+))?$/);
+    if (testRunMatch) {
+      const jobId = parse(uuidSchema, testRunMatch[1]);
+      if (testRunMatch[2]) {
+        assert(request.method === "GET", 405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");
+        const runId = parse(uuidSchema, testRunMatch[2]);
+        return send(await getJobTestRun(session.client, jobId, runId));
+      }
+      if (request.method === "GET") return send(await listJobTestRuns(session.client, jobId));
+      if (request.method === "POST") {
+        const key = parse(uuidSchema, request.headers.get("idempotency-key"));
+        const input = await body(request, createTestRunSchema);
+        const result = await createJobTestRun(session.client, config, user.id, jobId, key, input);
+        return send(result, result.replay ? 200 : 201);
+      }
+      throw new Fault(405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");
     }
     const versionDownloadMatch = url.pathname.match(/^\/api\/v1\/jobs\/([^/]+)\/deliverables\/([^/]+)\/versions\/([^/]+)$/);
     if (versionDownloadMatch) {

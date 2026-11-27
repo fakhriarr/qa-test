@@ -133,6 +133,26 @@ Endpoint unggah awal (`PUT /callbacks/qa/{jobId}/executions/{executionId}/delive
    - Versi aktif: `GET /api/v1/jobs/{jobId}/deliverables/{deliverableId}`.
    - Versi spesifik/riwayat (termasuk versi 1 hasil backfill): `GET /api/v1/jobs/{jobId}/deliverables/{deliverableId}/versions/{versionId}`.
 
+## Sesi pengujian fungsional otomatis terbatas (Migrasi 008)
+
+Sesi pengujian tersimpan terpisah (`qa_test_runs` dan `qa_test_run_cases`, owner-only via RLS) dan tertaut ke `jobId` serta `versionId` versi CSV `test_case` yang immutable tanpa mengubah job, artefak draft, versi, maupun hasil lama.
+
+- **Mode & lingkungan tahap awal:** `mode: "limited_functional_fixture"`, `environment: "synthetic_fixture"`. Hanya menjalankan skenario fungsional pradefinisi yang ditulis dan disetujui pengembang secara in-process pada fixture sintetis proyek (`*.example.invalid`). Isi CSV hanya data referensi — tidak ada URL bebas, tidak ada eksekusi instruksi/script dari CSV, tidak ada pemindai keamanan/workflow ofensif, dan tidak ada koneksi ke target nyata.
+- **Katalog skenario pradefinisi (`APPROVED_SCENARIOS`):**
+  - `fixture_request_draft_validation` (lulus)
+  - `fixture_scope_anchor_normalization` (lulus)
+  - `fixture_csv_rfc4180_integrity` (lulus)
+  - `fixture_access_notes_secret_guard` (lulus)
+  - `fixture_empty_cart_assertion_sample` (simulasi `failed` deterministik pada fixture)
+
+| Method dan path | Request | Respons dan tindakan |
+|---|---|---|
+| `GET /jobs/{jobId}/deliverables/{deliverableId}/versions/{versionId}/cases` | — | `200 {deliverableId, versionId, versionNumber, fileName, fileSha256, mode, environment, scenarios, cases}`. Mem-parse CSV versi immutable sebagai data referensi read-only + saran mapping skenario default. |
+| `GET /jobs/{jobId}/test-runs` | — | `200 {runs, scenarios}`. Daftar hingga 50 sesi uji terbaru milik pemilik untuk job tersebut. |
+| `POST /jobs/{jobId}/test-runs` | Header `Idempotency-Key` UUID v4 + `{"deliverableId", "versionId", "note"?, "selectedCases": [{"caseKey", "scenarioId"?: string \| null, "skip"?: boolean}]}` (1–200 case unik). | `201 {run, replay: false}` saat baru dibuat (`status: "created"`), `200 {run, replay: true}` pada replay identik, `409 IDEMPOTENCY_CONFLICT` jika key sama dengan payload berbeda. `scenarioId: null` diperbolehkan dan akan dicatat `blocked` saat dijalankan; `scenarioId` tak dikenal ditolak `400 INVALID_REQUEST`. |
+| `GET /jobs/{jobId}/test-runs/{runId}` | — | `200 {run}` termasuk `cases[]` (`status`: `pending \| passed \| failed \| blocked \| skipped`, `expected`, `actual`, `blockReason`, `durationMs`, `startedAt`, `finishedAt`). `404 TEST_RUN_NOT_FOUND` untuk akun lain atau ID salah. |
+| `POST /jobs/{jobId}/test-runs/{runId}/execute` | `{}` (aksi eksplisit pemilik; body selain `{}` ditolak `400`) | `200 {run, replay}`. Memicu `qa_execute_test_run(jobId, runId)` tanpa parameter outcome dari klien: hasil 5 skenario fixture pradefinisi dihitung secara atomik di dalam batas `SECURITY DEFINER` Postgres (tanpa `service_role`). Case tanpa mapping dicatat `blocked`, case dengan `skip: true` dicatat `skipped`. Memanggil ulang pada sesi selesai bersifat idempoten (`replay: true`). `409 TEST_RUN_IN_PROGRESS` jika lease sesi aktif masih berjalan; lease kedaluwarsa (`lease_expires_at <= now`) dipulihkan otomatis tanpa hasil ganda. |
+
 ## Kontrak penerima dispatch dan pengirim file
 
 Payload webhook lama tetap memakai `data.schemaVersion: 1`, field job lama, dan `data.callback`. Dispatch untuk permintaan baru juga memiliki `data.request` dengan `environment`, `accessRequiresLogin`, `accessNotes`, `scopeUrls`, `suggestions`, `prohibitions`, `securityPolicy: "defensive_only"`, dan `deliverables: [{deliverableId,kind,uploadUrl,uploadToken}]`. Target dan kriteria tetap ada di `data.targetUrl` dan `data.acceptanceCriteria`. Pemeriksaan keamanan hanya defensif. Callback JSON ke `POST /callbacks/qa` memakai tanda tangan, schema dan urutan lama.

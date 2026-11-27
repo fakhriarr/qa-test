@@ -12,6 +12,7 @@ import {
 } from "@/contracts/requests";
 import { apiRequest, downloadDeliverable, errorText, HttpError } from "@/components/api-client";
 import type { SessionContext } from "@/components/session-gate";
+import TestRunsPanel from "@/components/test-runs-panel";
 import { StatusChip, formatBytes, formatDateTime, shortId, type Tone } from "@/components/ui";
 
 const deliveryLabel: Record<Job["deliveryStatus"], string> = {
@@ -570,6 +571,8 @@ export default function JobDetail({ jobId, context }: { jobId: string; context: 
         <p className="foot-note">File hanya bisa diunduh oleh pemilik akun. Tautan unduhan langsung akan gagal untuk akun lain.</p>
       </aside>
     </div>
+
+    {!legacy && <TestRunsPanel jobId={job.jobId} items={items} context={context} />}
   </main>;
 }
 
