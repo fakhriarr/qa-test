@@ -140,8 +140,8 @@ const SCENARIO_RUNNERS: readonly ScenarioRunner[] = [
       expectedOutcomeHint: "failed",
     },
     run: () => {
-      const syntheticCartBanner = "0 items";
-      const expectedBanner = "Keranjang belanja kosong";
+      const syntheticCartBanner: string = "0 items";
+      const expectedBanner: string = "Keranjang belanja kosong";
       const passed = syntheticCartBanner === expectedBanner;
       return {
         status: passed ? "passed" : "failed",
