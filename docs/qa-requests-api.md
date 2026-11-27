@@ -114,7 +114,24 @@ Discovery hanya mengambil satu dokumen HTML publik HTTPS pada port standar, tanp
 }
 ```
 
-Tampilkan unduhan saat `status: "ready"`, termasuk saat job masih berjalan. Saat eksekusi terminal, item yang belum siap dilaporkan `failed`. `partial` bernilai true untuk eksekusi terminal dengan setidaknya satu file siap dan satu file belum siap. Retry terhadap file yang sudah direservasi dapat memulihkan item sesudah callback terminal. `GET /jobs/{jobId}/deliverables/{deliverableId}` mengembalikan attachment hanya kepada pemilik dan `404 ARTIFACT_NOT_FOUND` untuk akun lain, item yang belum siap, atau pasangan ID yang salah. UI bisa membuka tautan unduhan langsung dari origin dashboard.
+Tampilkan unduhan saat `status: "ready"`, termasuk saat job masih berjalan. Saat eksekusi terminal, item yang belum siap dilaporkan `failed`. `partial` bernilai true untuk eksekusi terminal dengan setidaknya satu file siap dan satu file belum siap. Retry terhadap file yang sudah direservasi dapat memulihkan item sesudah callback terminal. `GET /jobs/{jobId}/deliverables/{deliverableId}` mengembalikan attachment versi aktif hanya kepada pemilik dan `404 ARTIFACT_NOT_FOUND` untuk akun lain, item yang belum siap, atau pasangan ID yang salah. Setiap item siap pada `GET /jobs/{jobId}/deliverables` juga menyertakan metadata revisi yang kompatibel mundur: `documentStatus` (`"draft"` terpisah dari status job/hasil pengujian), `activeVersionNumber`, `versionCount`, dan `versions` (urutan terbaru dulu; masing-masing memuat `versionId`, `versionNumber`, `fileName`, `sizeBytes`, `sha256`, `documentStatus`, `revisionNote`, `readyAt`, `isActive`, dan `downloadUrl` ke `GET /jobs/{jobId}/deliverables/{deliverableId}/versions/{versionId}`).
+
+## Revisi file deliverable pada job yang sama (Migrasi 007)
+
+Endpoint unggah awal (`PUT /callbacks/qa/{jobId}/executions/{executionId}/deliverables/{deliverableId}`) dan callback JSON (`POST /callbacks/qa`) tetap ketat dan tidak dilonggarkan. Untuk mengunggah revisi pada job yang sama (termasuk job terminal) tanpa membuat job/pengujian baru:
+
+1. **Penerbitan izin revisi oleh pemilik (terbatas per job & item):**
+   - `POST /api/v1/jobs/{jobId}/deliverables/{deliverableId}/revision-grants` dengan sesi pemilik, `Origin` dashboard, dan body JSON `{}` atau `{"ttlMinutes": 60}` (batas 5–4.320 menit, default 1.440 menit).
+   - Mengembalikan `201 {"grant": {"grantId", "deliverableId", "jobId", "executionId", "kind", "uploadUrl", "uploadToken", "expiresAt", "activeVersionNumber", "documentStatusDefault": "draft"}}`.
+   - Server hanya menyimpan hash SHA-256 token dan capability Storage di `qa_artifact_revision_grants` (tanpa `service_role`). Token tidak boleh dicatat ke repo atau log.
+2. **Unggah revisi eksplisit oleh agent:**
+   - `POST /api/v1/callbacks/qa/{jobId}/executions/{executionId}/deliverables/{deliverableId}/revisions` dengan header `Authorization: Bearer <uploadToken>` dari grant di atas dan body `multipart/form-data`.
+   - Field wajib: `file` (format mengikuti katalog deliverable; misalnya `test_case` tetap hanya menerima `.csv` UTF-8 RFC 4180 dan menolak `.xlsx` dengan `415 INVALID_ARTIFACT_FORMAT`) dan `sha256` (64 hex lowercase).
+   - Field opsional: `documentStatus` (hanya `"draft"`, default `"draft"`), `revisionNote` (maks. 500 karakter), dan `expectedActiveVersion` (bilangan bulat positif untuk proteksi race optimistik; ketidakcocokan mengembalikan `409 ARTIFACT_VERSION_CONFLICT`).
+   - File baru disimpan pada objek Storage immutable baru (`/v/{versionId}`) dan baru diaktifkan secara atomik setelah tersimpan serta terverifikasi ukuran dan checksum-nya. Kegagalan unggah atau race tidak mengganti versi aktif. Retry file identik (baik versi aktif maupun versi lama) mengembalikan `200` dengan `replay: true` tanpa menduplikasi atau mengaktifkan ulang versi lama. Deliverable lain (seperti `bug_report`), status job, dan hasil pengujian tidak berubah.
+3. **Unduhan versi aktif dan riwayat oleh pemilik:**
+   - Versi aktif: `GET /api/v1/jobs/{jobId}/deliverables/{deliverableId}`.
+   - Versi spesifik/riwayat (termasuk versi 1 hasil backfill): `GET /api/v1/jobs/{jobId}/deliverables/{deliverableId}/versions/{versionId}`.
 
 ## Kontrak penerima dispatch dan pengirim file
 

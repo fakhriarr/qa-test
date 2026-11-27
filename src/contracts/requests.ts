@@ -70,6 +70,35 @@ export type Draft = {
   jobId: string | null;
   updatedAt: string;
 };
+export const documentStatusSchema = z.enum(["draft", "final"]);
+export type DocumentStatus = z.infer<typeof documentStatusSchema>;
+export const revisionGrantRequestSchema = z.strictObject({
+  ttlMinutes: z.number().int().min(5).max(4320).optional(),
+});
+export type DeliverableVersion = {
+  versionId: string;
+  versionNumber: number;
+  fileName: string;
+  sizeBytes: number;
+  sha256: string;
+  documentStatus: DocumentStatus;
+  revisionNote: string;
+  readyAt: string;
+  isActive: boolean;
+  downloadUrl: string;
+};
+export type RevisionGrant = {
+  grantId: string;
+  deliverableId: string;
+  jobId: string;
+  executionId: string;
+  kind: DeliverableKind;
+  uploadUrl: string;
+  uploadToken: string;
+  expiresAt: string;
+  activeVersionNumber: number;
+  documentStatusDefault: "draft";
+};
 export type Deliverable = {
   deliverableId: string;
   kind: DeliverableKind;
@@ -79,5 +108,9 @@ export type Deliverable = {
   sha256: string | null;
   readyAt: string | null;
   downloadUrl: string | null;
+  documentStatus?: DocumentStatus | null;
+  activeVersionNumber?: number | null;
+  versionCount?: number;
+  versions?: DeliverableVersion[];
 };
 export const ARTIFACT_MAX_BYTES = 3 * 1024 * 1024;

@@ -7,7 +7,8 @@ import {
   type Job, type JobResponse,
 } from "@/contracts";
 import {
-  deliverableCatalog, type Deliverable, type Submission,
+  deliverableCatalog,
+  type Deliverable, type DeliverableVersion, type DocumentStatus, type RevisionGrant, type Submission,
 } from "@/contracts/requests";
 import { apiRequest, downloadDeliverable, errorText, HttpError } from "@/components/api-client";
 import type { SessionContext } from "@/components/session-gate";
@@ -34,10 +35,22 @@ const environmentLabel: Record<Submission["environment"], string> = {
 };
 const itemTone: Record<Deliverable["status"], Tone> = { pending: "neutral", ready: "done", failed: "problem" };
 const itemLabel: Record<Deliverable["status"], string> = { pending: "Menunggu", ready: "Siap diunduh", failed: "Gagal" };
+const documentStatusLabel: Record<DocumentStatus, string> = { draft: "Draft", final: "Final" };
 const outcomeLabel = { pass: "Sesuai", fail: "Tidak sesuai", blocked: "Terhalang" } as const;
 
 type Progress = { request: Submission | null; items: Deliverable[]; ready: number; total: number; partial: boolean };
 type Action = "dispatch" | "retry" | "reconcile";
+type GrantResponse = { grant: RevisionGrant };
+
+function safeApiDownloadPath(candidate: string | null | undefined, fallback: string): string {
+  if (candidate && candidate.startsWith("/api/v1/") && !candidate.startsWith("//")) return candidate;
+  return fallback;
+}
+
+function shortChecksum(sha256: string | null | undefined): string | null {
+  if (!sha256) return null;
+  return `${sha256.slice(0, 12)}…`;
+}
 
 export default function JobDetail({ jobId, context }: { jobId: string; context: SessionContext }) {
   const { signal, onAuthFailure } = context;
@@ -50,6 +63,12 @@ export default function JobDetail({ jobId, context }: { jobId: string; context: 
   const [busy, setBusy] = useState<Action | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState("");
+  const [expandedHistory, setExpandedHistory] = useState<Record<string, boolean>>({});
+  const [issuingGrant, setIssuingGrant] = useState<string | null>(null);
+  const [grants, setGrants] = useState<Record<string, RevisionGrant>>({});
+  const [grantErrors, setGrantErrors] = useState<Record<string, string>>({});
+  const [revealedTokens, setRevealedTokens] = useState<Record<string, boolean>>({});
+  const [copyFeedback, setCopyFeedback] = useState<Record<string, string>>({});
   const [stale, setStale] = useState(false);
   const seq = useRef(0);
 
@@ -117,7 +136,8 @@ export default function JobDetail({ jobId, context }: { jobId: string; context: 
 
   async function downloadItem(item: Deliverable) {
     if (downloading || !item.fileName) return;
-    const path = `/api/v1/jobs/${encodeURIComponent(jobId)}/deliverables/${encodeURIComponent(item.deliverableId)}`;
+    const fallback = `/api/v1/jobs/${encodeURIComponent(jobId)}/deliverables/${encodeURIComponent(item.deliverableId)}`;
+    const path = safeApiDownloadPath(item.downloadUrl, fallback);
     setDownloading(item.deliverableId);
     setDownloadError("");
     try {
@@ -126,6 +146,82 @@ export default function JobDetail({ jobId, context }: { jobId: string; context: 
       if (!signal.aborted && !onAuthFailure(caught)) setDownloadError(errorText(caught));
     } finally {
       setDownloading(null);
+    }
+  }
+
+  async function downloadVersion(item: Deliverable, version: DeliverableVersion) {
+    if (downloading || !version.fileName) return;
+    const fallback = `/api/v1/jobs/${encodeURIComponent(jobId)}/deliverables/${encodeURIComponent(item.deliverableId)}/versions/${encodeURIComponent(version.versionId)}`;
+    const path = safeApiDownloadPath(version.downloadUrl, fallback);
+    const key = `version:${version.versionId}`;
+    setDownloading(key);
+    setDownloadError("");
+    try {
+      await downloadDeliverable(path, version.fileName, signal);
+    } catch (caught) {
+      if (!signal.aborted && !onAuthFailure(caught)) setDownloadError(errorText(caught));
+    } finally {
+      setDownloading(null);
+    }
+  }
+
+  async function issueRevisionGrant(item: Deliverable) {
+    if (issuingGrant || item.status !== "ready") return;
+    setIssuingGrant(item.deliverableId);
+    setGrantErrors(current => {
+      const next = { ...current };
+      delete next[item.deliverableId];
+      return next;
+    });
+    try {
+      const result = await apiRequest<GrantResponse>(
+        `/jobs/${encodeURIComponent(jobId)}/deliverables/${encodeURIComponent(item.deliverableId)}/revision-grants`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+          signal,
+        },
+      );
+      setGrants(current => ({ ...current, [item.deliverableId]: result.grant }));
+      setRevealedTokens(current => ({ ...current, [item.deliverableId]: false }));
+      setCopyFeedback(current => {
+        const next = { ...current };
+        delete next[item.deliverableId];
+        return next;
+      });
+    } catch (caught) {
+      if (signal.aborted || onAuthFailure(caught)) return;
+      setGrantErrors(current => ({ ...current, [item.deliverableId]: errorText(caught) }));
+    } finally {
+      setIssuingGrant(null);
+    }
+  }
+
+  function dismissGrant(deliverableId: string) {
+    setGrants(current => {
+      const next = { ...current };
+      delete next[deliverableId];
+      return next;
+    });
+    setRevealedTokens(current => {
+      const next = { ...current };
+      delete next[deliverableId];
+      return next;
+    });
+    setCopyFeedback(current => {
+      const next = { ...current };
+      delete next[deliverableId];
+      return next;
+    });
+  }
+
+  async function copyGrantField(deliverableId: string, label: string, value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyFeedback(current => ({ ...current, [deliverableId]: `${label} disalin ke papan klip.` }));
+    } catch {
+      setCopyFeedback(current => ({ ...current, [deliverableId]: `Salin otomatis tidak tersedia; salin ${label.toLowerCase()} secara manual.` }));
     }
   }
 
@@ -219,26 +315,211 @@ export default function JobDetail({ jobId, context }: { jobId: string; context: 
         {progress?.partial && <p className="banner banner-warn">Eksekusi sudah berakhir, tetapi hanya sebagian hasil tersedia. File yang siap tetap bisa diunduh.</p>}
 
         {total > 0 && <ul className="artifact-list">
-          {items.map(item => <li className="artifact" key={item.deliverableId} data-status={item.status}>
-            <div className="artifact-main">
-              <div className="artifact-title">
-                <strong>{deliverableCatalog[item.kind].label}</strong>
-                <StatusChip tone={itemTone[item.status]}>{itemLabel[item.status]}</StatusChip>
+          {items.map(item => {
+            const versions = item.versions ?? [];
+            const olderVersions = versions.filter(version => !version.isActive);
+            const activeVersion = versions.find(version => version.isActive) ?? null;
+            const activeVersionNumber = item.activeVersionNumber ?? activeVersion?.versionNumber ?? null;
+            const docStatus = item.documentStatus ?? activeVersion?.documentStatus ?? null;
+            const historyOpen = expandedHistory[item.deliverableId] ?? olderVersions.length > 0;
+            const grant = grants[item.deliverableId] ?? null;
+            const grantError = grantErrors[item.deliverableId] ?? "";
+            const tokenVisible = revealedTokens[item.deliverableId] ?? false;
+            const activeChecksum = shortChecksum(item.sha256);
+
+            return <li className="artifact" key={item.deliverableId} data-status={item.status}>
+              <div className="artifact-top">
+                <div className="artifact-main">
+                  <div className="artifact-title">
+                    <strong>{deliverableCatalog[item.kind].label}</strong>
+                    <StatusChip tone={itemTone[item.status]}>{itemLabel[item.status]}</StatusChip>
+                    {item.status === "ready" && activeVersionNumber !== null && (
+                      <span className="artifact-badge artifact-badge-version mono">v{activeVersionNumber} aktif</span>
+                    )}
+                    {item.status === "ready" && docStatus && (
+                      <span
+                        className={`artifact-badge artifact-badge-${docStatus}`}
+                        title="Status dokumen ini terpisah dari status eksekusi job"
+                      >
+                        {documentStatusLabel[docStatus]}
+                      </span>
+                    )}
+                  </div>
+                  <p className="artifact-meta">
+                    {item.status === "ready"
+                      ? <>
+                        {item.fileName} · {formatBytes(item.sizeBytes)} · {formatDateTime(item.readyAt)}
+                        {activeChecksum && <> · <span className="mono">SHA-256 {activeChecksum}</span></>}
+                      </>
+                      : item.status === "failed"
+                        ? "Agent QA tidak mengirim file ini. Coba kirim ulang dari tindakan di bawah."
+                        : "Menunggu agent QA mengirim file ini."}
+                  </p>
+                  {item.status === "ready" && activeVersion?.revisionNote && (
+                    <p className="artifact-note">{activeVersion.revisionNote}</p>
+                  )}
+                </div>
+
+                {item.status === "ready" && item.downloadUrl
+                  ? <div className="artifact-actions">
+                    <button
+                      className="button button-primary"
+                      type="button"
+                      disabled={downloading !== null}
+                      onClick={() => void downloadItem(item)}
+                    >
+                      {downloading === item.deliverableId
+                        ? "Mengunduh…"
+                        : activeVersionNumber !== null
+                          ? `Unduh v${activeVersionNumber}`
+                          : "Unduh"}
+                    </button>
+                    <button
+                      className="button button-quiet"
+                      type="button"
+                      disabled={issuingGrant !== null || stale}
+                      onClick={() => void issueRevisionGrant(item)}
+                    >
+                      {issuingGrant === item.deliverableId ? "Menerbitkan…" : "Izin revisi agent"}
+                    </button>
+                  </div>
+                  : <span className="artifact-wait" aria-hidden="true">—</span>}
               </div>
-              <p className="artifact-meta">
-                {item.status === "ready"
-                  ? <>{item.fileName} · {formatBytes(item.sizeBytes)} · {formatDateTime(item.readyAt)}</>
-                  : item.status === "failed"
-                    ? "Agent QA tidak mengirim file ini. Coba kirim ulang dari tindakan di bawah."
-                    : "Menunggu agent QA mengirim file ini."}
-              </p>
-            </div>
-            {item.status === "ready" && item.downloadUrl
-              ? <button className="button button-quiet" type="button" disabled={downloading !== null} onClick={() => void downloadItem(item)}>
-                  {downloading === item.deliverableId ? "Mengunduh…" : "Unduh"}
-                </button>
-              : <span className="artifact-wait" aria-hidden="true">—</span>}
-          </li>)}
+
+              {grantError && (
+                <p className="banner banner-error artifact-banner" role="alert">
+                  Izin revisi belum dapat diterbitkan. {grantError}
+                </p>
+              )}
+
+              {grant && (
+                <div className="grant-box" role="region" aria-label={`Izin revisi ${deliverableCatalog[item.kind].label}`}>
+                  <div className="grant-head">
+                    <div>
+                      <strong>Izin revisi sementara siap digunakan</strong>
+                      <p className="grant-meta">
+                        Berbasis v{grant.activeVersionNumber} · berlaku sampai {formatDateTime(grant.expiresAt)} · status dokumen default:{" "}
+                        <strong>{documentStatusLabel[grant.documentStatusDefault]}</strong>
+                      </p>
+                    </div>
+                    <button type="button" className="link-button" onClick={() => dismissGrant(item.deliverableId)}>
+                      Tutup &amp; bersihkan
+                    </button>
+                  </div>
+
+                  <div className="grant-fields">
+                    <div className="grant-field">
+                      <label className="grant-label" htmlFor={`grant-url-${item.deliverableId}`}>URL unggah revisi</label>
+                      <div className="grant-input-row">
+                        <input
+                          id={`grant-url-${item.deliverableId}`}
+                          className="input mono grant-input"
+                          type="text"
+                          readOnly
+                          value={grant.uploadUrl}
+                        />
+                        <button
+                          type="button"
+                          className="button button-quiet"
+                          onClick={() => void copyGrantField(item.deliverableId, "URL revisi", grant.uploadUrl)}
+                        >
+                          Salin URL
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grant-field">
+                      <label className="grant-label" htmlFor={`grant-token-${item.deliverableId}`}>Token unggah (Bearer)</label>
+                      <div className="grant-input-row">
+                        <input
+                          id={`grant-token-${item.deliverableId}`}
+                          className="input mono grant-input"
+                          type={tokenVisible ? "text" : "password"}
+                          readOnly
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={grant.uploadToken}
+                        />
+                        <button
+                          type="button"
+                          className="button button-quiet"
+                          onClick={() => setRevealedTokens(current => ({ ...current, [item.deliverableId]: !tokenVisible }))}
+                        >
+                          {tokenVisible ? "Sembunyikan" : "Tampilkan"}
+                        </button>
+                        <button
+                          type="button"
+                          className="button button-quiet"
+                          onClick={() => void copyGrantField(item.deliverableId, "Token revisi", grant.uploadToken)}
+                        >
+                          Salin token
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {copyFeedback[item.deliverableId] && (
+                    <p className="grant-feedback" role="status">{copyFeedback[item.deliverableId]}</p>
+                  )}
+                  <p className="help">
+                    Teruskan URL dan token ini ke agent QA lewat jalur aman. Jangan simpan di repo, catatan publik, atau log. Token hanya tersimpan sementara di layar ini dan tidak mengubah status eksekusi job.
+                  </p>
+                </div>
+              )}
+
+              {versions.length > 0 && (
+                <div className="version-history">
+                  <div className="version-history-head">
+                    <button
+                      type="button"
+                      className="link-button"
+                      aria-expanded={historyOpen}
+                      aria-controls={`versions-${item.deliverableId}`}
+                      onClick={() => setExpandedHistory(current => ({ ...current, [item.deliverableId]: !historyOpen }))}
+                    >
+                      {historyOpen ? "Sembunyikan riwayat versi" : "Lihat riwayat versi"} ({versions.length}
+                      {olderVersions.length > 0 ? ` · ${olderVersions.length} versi lama` : ""})
+                    </button>
+                  </div>
+
+                  {historyOpen && (
+                    <ol className="version-list" id={`versions-${item.deliverableId}`}>
+                      {versions.map(version => {
+                        const versionKey = `version:${version.versionId}`;
+                        const checksum = shortChecksum(version.sha256);
+                        return <li className="version-row" key={version.versionId} data-active={version.isActive ? "true" : undefined}>
+                          <div className="version-main">
+                            <div className="version-title">
+                              <span className="mono version-num">v{version.versionNumber}</span>
+                              <span className={`artifact-badge ${version.isActive ? "artifact-badge-version" : "artifact-badge-archived"}`}>
+                                {version.isActive ? "Aktif" : "Versi lama"}
+                              </span>
+                              <span className={`artifact-badge artifact-badge-${version.documentStatus}`}>
+                                {documentStatusLabel[version.documentStatus]}
+                              </span>
+                            </div>
+                            <p className="version-meta">
+                              {version.fileName} · {formatBytes(version.sizeBytes)} · {formatDateTime(version.readyAt)}
+                              {checksum && <> · <span className="mono">SHA-256 {checksum}</span></>}
+                            </p>
+                            {version.revisionNote && <p className="version-note">{version.revisionNote}</p>}
+                          </div>
+                          <button
+                            className="button button-quiet"
+                            type="button"
+                            disabled={downloading !== null}
+                            onClick={() => void downloadVersion(item, version)}
+                          >
+                            {downloading === versionKey ? "Mengunduh…" : `Unduh v${version.versionNumber}`}
+                          </button>
+                        </li>;
+                      })}
+                    </ol>
+                  )}
+                </div>
+              )}
+            </li>;
+          })}
         </ul>}
 
         {legacy && job.result && <div className="legacy-result">

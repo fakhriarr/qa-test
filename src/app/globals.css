@@ -289,15 +289,53 @@ p.sub-note{margin:6px 0 0;font-size:.8rem;line-height:1.55}
 .meter{flex:none;width:120px;height:6px;border-radius:100px;background:#e6ede6;overflow:hidden}
 .meter>span{display:block;height:100%;background:var(--green);border-radius:100px;transition:width .3s ease}
 .artifact-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-.artifact{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 0;border-top:1px solid var(--line)}
+.artifact{display:flex;flex-direction:column;gap:12px;padding:16px 0;border-top:1px solid var(--line)}
 .artifact:first-child{border-top:0}
-.artifact-main{min-width:0}
-.artifact-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.artifact-top{display:flex;align-items:start;justify-content:space-between;gap:16px}
+.artifact-main{min-width:0;flex:1 1 auto}
+.artifact-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .artifact-title strong{font-size:.9rem}
 .artifact-meta{margin:5px 0 0;color:var(--muted);font-size:.76rem}
+.artifact-note{margin:6px 0 0;color:var(--ink-soft);font-size:.78rem;line-height:1.45}
+.artifact-actions{display:flex;align-items:center;gap:8px;flex:none;flex-wrap:wrap}
 .artifact .button{flex:none;min-height:36px;padding:7px 14px;font-size:.76rem}
 .artifact-wait{flex:none;color:#b3c0b7}
 .artifact[data-status=ready]{background:linear-gradient(90deg,rgba(232,242,234,.5),transparent 55%)}
+.artifact-banner{margin:0}
+.artifact-badge{
+  display:inline-flex;align-items:center;padding:3px 8px;border-radius:6px;
+  border:1px solid transparent;font-size:.67rem;font-weight:800;letter-spacing:.03em;
+  text-transform:uppercase;white-space:nowrap;
+}
+.artifact-badge-version{border-color:#c3d8c9;background:#eef6f0;color:#1d5a3d}
+.artifact-badge-draft{border-color:#e6d3a6;background:var(--amber-soft);color:var(--amber)}
+.artifact-badge-final{border-color:#b9d7c1;background:var(--green-soft);color:#1d5a3d}
+.artifact-badge-archived{border-color:#d5ded6;background:#f4f6f2;color:#5d6f65}
+.version-history{border-top:1px dashed var(--line);padding-top:10px}
+.version-history-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.version-list{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.version-row{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper-2);
+}
+.version-row[data-active=true]{border-color:#c3d8c9;background:#f5faf6}
+.version-main{min-width:0;flex:1 1 auto}
+.version-title{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.version-num{font-weight:750;color:var(--ink)}
+.version-meta{margin:4px 0 0;color:var(--muted);font-size:.74rem}
+.version-note{margin:4px 0 0;color:var(--ink-soft);font-size:.75rem;line-height:1.45}
+.grant-box{
+  padding:14px 16px;border:1px solid #c3d8c9;border-radius:12px;background:#f7fbf8;
+}
+.grant-head{display:flex;align-items:start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.grant-head strong{font-size:.84rem;color:var(--ink)}
+.grant-meta{margin:4px 0 0;color:var(--muted);font-size:.75rem}
+.grant-fields{display:grid;gap:10px;margin-top:12px}
+.grant-field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.grant-label{font-size:.72rem;font-weight:750;color:var(--ink-soft)}
+.grant-input-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.grant-input{flex:1 1 240px;min-width:0;padding:8px 10px;font-size:.76rem;background:#fff}
+.grant-feedback{margin:8px 0 0;color:#1d5a3d;font-size:.74rem;font-weight:700}
 .next-step{display:flex;align-items:center;justify-content:space-between;gap:22px;flex-wrap:wrap;margin-top:18px;border-color:#bcd6c4;background:linear-gradient(120deg,#f2f8f0,#fdfbf3)}
 .next-step h2{font-family:var(--serif);font-weight:400;font-size:1.3rem;letter-spacing:-.01em}
 .next-step .panel-lede{max-width:60ch}
@@ -378,8 +416,12 @@ p.sub-note{margin:6px 0 0;font-size:.8rem;line-height:1.55}
   .deliverable-grid{grid-template-columns:1fr}
   .status-stack{min-width:0;width:100%}
   .detail-hero{gap:18px}
-  .artifact{flex-wrap:wrap;gap:10px}
-  .artifact .button{width:100%}
+  .artifact-top{flex-wrap:wrap;gap:10px}
+  .artifact-actions{width:100%}
+  .artifact-actions .button{flex:1 1 auto}
+  .version-row{flex-wrap:wrap;align-items:stretch}
+  .version-row .button{width:100%}
+  .grant-input-row .button{flex:1 1 auto}
   .wizard-foot{flex-direction:column;align-items:stretch}
   .foot-right{justify-content:stretch}
   .foot-right .button{flex:1 1 auto}

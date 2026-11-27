@@ -10,8 +10,11 @@ import { Store } from "./store";
 import { Service } from "./service";
 import { WebhookDispatcher, verifyAuthenticatedCallback } from "./webhook";
 
-import { requestUrl } from "../contracts/requests";
-import { artifactPath, artifactToken, bindArtifactUploads, deliverableProgress, downloadArtifact, jobArtifacts, uploadArtifact } from "./artifacts";
+import { requestUrl, revisionGrantRequestSchema } from "../contracts/requests";
+import {
+  artifactPath, artifactToken, bindArtifactUploads, deliverableProgress, downloadArtifact,
+  issueArtifactRevisionGrant, jobArtifacts, uploadArtifact, uploadArtifactRevision,
+} from "./artifacts";
 import { discoverLinks } from "./discovery";
 import { handleDrafts, REQUEST_SCOPE_MARKER, submittedRequest } from "./requests";
 
@@ -39,6 +42,15 @@ export async function handleRequest(request: Request): Promise<Response> {
       });
       const store = new Store(createPublicClient(config));
       return reply(await store.agentCallback(callbackToken, event), 200);
+    }
+    const revisionUploadMatch = url.pathname.match(/^\/api\/v1\/callbacks\/qa\/([^/]+)\/executions\/([^/]+)\/deliverables\/([^/]+)\/revisions$/);
+    if (revisionUploadMatch) {
+      trustedHost(request, config.origin);
+      assert(!url.search, 400, "INVALID_REQUEST", "Parameter query tidak didukung.");
+      assert(request.method === "POST", 405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");
+      const [jobId, executionId, itemId] = parse(z.tuple([uuidSchema, uuidSchema, uuidSchema]), revisionUploadMatch.slice(1));
+      const result = await uploadArtifactRevision(request, config, jobId, executionId, itemId);
+      return reply(result.payload, result.status);
     }
     const artifactMatch = url.pathname.match(/^\/api\/v1\/callbacks\/qa\/([^/]+)\/executions\/([^/]+)\/deliverables\/([^/]+)$/);
     if (artifactMatch) {
@@ -103,6 +115,19 @@ export async function handleRequest(request: Request): Promise<Response> {
       const draftId = draftMatch[1] ? parse(uuidSchema, draftMatch[1]) : undefined;
       const result = await handleDrafts(request, session.client, draftId, Boolean(draftMatch[2]));
       return send(result.payload, result.status);
+    }
+    const revisionGrantMatch = url.pathname.match(/^\/api\/v1\/jobs\/([^/]+)\/deliverables\/([^/]+)\/revision-grants$/);
+    if (revisionGrantMatch) {
+      assert(request.method === "POST", 405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");
+      const [jobId, itemId] = parse(z.tuple([uuidSchema, uuidSchema]), revisionGrantMatch.slice(1));
+      const input = await body(request, revisionGrantRequestSchema);
+      return send(await issueArtifactRevisionGrant(session.client, config, jobId, itemId, input.ttlMinutes), 201);
+    }
+    const versionDownloadMatch = url.pathname.match(/^\/api\/v1\/jobs\/([^/]+)\/deliverables\/([^/]+)\/versions\/([^/]+)$/);
+    if (versionDownloadMatch) {
+      assert(request.method === "GET", 405, "METHOD_NOT_ALLOWED", "Method tidak diizinkan.");
+      const [jobId, itemId, versionId] = parse(z.tuple([uuidSchema, uuidSchema, uuidSchema]), versionDownloadMatch.slice(1));
+      return session.apply(await downloadArtifact(session.client, config, user.id, jobId, itemId, versionId));
     }
     const resultsMatch = url.pathname.match(/^\/api\/v1\/jobs\/([^/]+)\/deliverables(?:\/([^/]+))?$/);
     if (resultsMatch) {
