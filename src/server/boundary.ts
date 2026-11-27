@@ -18,7 +18,7 @@ export function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   assert(result.success, 400, "INVALID_REQUEST", "Field, tipe, atau batas nilai tidak sesuai kontrak.");
   return result.data;
 }
-export async function boundedBytes(request: Request, limit: number): Promise<Buffer> {
+export async function boundedBytes(request: Request | Response, limit: number): Promise<Buffer> {
   const reader = request.body?.getReader();
   const chunks: Uint8Array[] = []; let size = 0;
   if (reader) while (true) {

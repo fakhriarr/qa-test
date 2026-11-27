@@ -9,7 +9,7 @@ import {
 import {
   deliverableCatalog, type Deliverable, type Submission,
 } from "@/contracts/requests";
-import { apiRequest, errorText, HttpError } from "@/components/api-client";
+import { apiRequest, downloadDeliverable, errorText, HttpError } from "@/components/api-client";
 import type { SessionContext } from "@/components/session-gate";
 import { StatusChip, formatBytes, formatDateTime, shortId, type Tone } from "@/components/ui";
 
@@ -48,6 +48,8 @@ export default function JobDetail({ jobId, context }: { jobId: string; context: 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState<{ kind: "info" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState<Action | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState("");
   const [stale, setStale] = useState(false);
   const seq = useRef(0);
 
@@ -110,6 +112,20 @@ export default function JobDetail({ jobId, context }: { jobId: string; context: 
       void load(true);
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function downloadItem(item: Deliverable) {
+    if (downloading || !item.fileName) return;
+    const path = `/api/v1/jobs/${encodeURIComponent(jobId)}/deliverables/${encodeURIComponent(item.deliverableId)}`;
+    setDownloading(item.deliverableId);
+    setDownloadError("");
+    try {
+      await downloadDeliverable(path, item.fileName, signal);
+    } catch (caught) {
+      if (!signal.aborted && !onAuthFailure(caught)) setDownloadError(errorText(caught));
+    } finally {
+      setDownloading(null);
     }
   }
 
@@ -199,6 +215,7 @@ export default function JobDetail({ jobId, context }: { jobId: string; context: 
           </div>}
         </div>
 
+        {downloadError && <p className="banner banner-error" role="alert">{downloadError}</p>}
         {progress?.partial && <p className="banner banner-warn">Eksekusi sudah berakhir, tetapi hanya sebagian hasil tersedia. File yang siap tetap bisa diunduh.</p>}
 
         {total > 0 && <ul className="artifact-list">
@@ -217,7 +234,9 @@ export default function JobDetail({ jobId, context }: { jobId: string; context: 
               </p>
             </div>
             {item.status === "ready" && item.downloadUrl
-              ? <a className="button button-quiet" href={item.downloadUrl} download>Unduh</a>
+              ? <button className="button button-quiet" type="button" disabled={downloading !== null} onClick={() => void downloadItem(item)}>
+                  {downloading === item.deliverableId ? "Mengunduh…" : "Unduh"}
+                </button>
               : <span className="artifact-wait" aria-hidden="true">—</span>}
           </li>)}
         </ul>}

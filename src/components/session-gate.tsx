@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import type { SessionResponse, SessionUser } from "@/contracts";
 import { apiRequest, authStateFor, errorText } from "@/components/api-client";
 
@@ -13,7 +14,18 @@ export type SessionContext = {
   onLogout: () => void;
 };
 
+const DashboardSession = createContext<SessionContext | null>(null);
+
 export default function SessionGate({ children }: { children: (context: SessionContext) => ReactNode }) {
+  const context = useContext(DashboardSession);
+  return context ? <>{children(context)}</> : null;
+}
+
+export function DashboardSessionProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  // Login owns its session checks and invitation flow.
+  const isLogin = pathname === "/login";
+
   const [view, setView] = useState<View>("loading");
   const [user, setUser] = useState<SessionUser | null>(null);
   const [notice, setNotice] = useState("");
@@ -42,9 +54,10 @@ export default function SessionGate({ children }: { children: (context: SessionC
   }, []);
 
   useEffect(() => {
+    if (isLogin) return;
     void loadSession();
     return () => { seq.current++; controllerRef.current?.abort(); };
-  }, [loadSession]);
+  }, [isLogin, loadSession]);
 
   const onAuthFailure = useCallback((error: unknown) => {
     const next = authStateFor(error);
@@ -75,9 +88,11 @@ export default function SessionGate({ children }: { children: (context: SessionC
     }
   }, []);
 
+  if (isLogin) return <>{children}</>;
+
   const controller = controllerRef.current;
   if (view === "ready" && user && controller) {
-    return <>{children({ user, signal: controller.signal, onAuthFailure, onLogout })}</>;
+    return <DashboardSession.Provider value={{ user, signal: controller.signal, onAuthFailure, onLogout }}>{children}</DashboardSession.Provider>;
   }
 
   const title = view === "loading" ? "Memeriksa sesi…"

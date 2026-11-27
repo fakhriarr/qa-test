@@ -110,7 +110,7 @@ export async function handleRequest(request: Request): Promise<Response> {
       const jobId = parse(uuidSchema, resultsMatch[1]);
       if (resultsMatch[2]) {
         const itemId = parse(uuidSchema, resultsMatch[2]);
-        return session.apply(await downloadArtifact(session.client, jobId, itemId));
+        return session.apply(await downloadArtifact(session.client, config, user.id, jobId, itemId));
       }
       const job = await store.job(jobId);
       const details = job.scope === REQUEST_SCOPE_MARKER ? await submittedRequest(session.client, jobId) : null;

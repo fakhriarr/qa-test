@@ -121,19 +121,36 @@ export async function uploadArtifact(request: Request, config: AppConfig, job: s
   return { deliverable: dto(finished.data, false), replay: Boolean(uploadError) };
 }
 
-export async function downloadArtifact(client: SupabaseClient, jobId: string, itemId: string) {
+export async function downloadArtifact(
+  client: SupabaseClient, config: AppConfig, ownerId: string, jobId: string, itemId: string,
+) {
   const { data, error } = await client.from("qa_artifacts").select(columns)
-    .eq("job_id", jobId).eq("deliverable_id", itemId).not("ready_at", "is", null).maybeSingle<ArtifactRow>();
+    .eq("owner_id", ownerId).eq("job_id", jobId).eq("deliverable_id", itemId)
+    .not("ready_at", "is", null).maybeSingle<ArtifactRow>();
   if (error) throw databaseFault(error);
   assert(data, 404, "ARTIFACT_NOT_FOUND", "File tidak ditemukan.");
-  const result = await client.storage.from(bucket).download(storagePath(data));
-  assert(result.data && !result.error, 503, "ARTIFACT_STORAGE_UNAVAILABLE", "File belum dapat diunduh. Coba lagi.");
-  const bytes = Buffer.from(await result.data.arrayBuffer());
+
+  // The caller already verified this user with Auth. Forward the session only as a
+  // credential for Storage's authenticated object route, where RLS also checks ownership.
+  const { data: auth, error: authError } = await client.auth.getSession();
+  assert(!authError && auth.session?.access_token && auth.session.user.id === ownerId,
+    401, "AUTH_REQUIRED", "Sesi berakhir. Silakan masuk kembali.");
+  const path = storagePath(data).split("/").map(encodeURIComponent).join("/");
+  const url = new URL(`/storage/v1/object/authenticated/${bucket}/${path}`, config.supabaseUrl);
+  const stored = await fetch(url, {
+    headers: { apikey: config.publishableKey, Authorization: `Bearer ${auth.session.access_token}` },
+    cache: "no-store", redirect: "error", signal: AbortSignal.timeout(8000),
+  }).catch(() => null);
+  assert(stored?.ok && stored.body, 503, "ARTIFACT_STORAGE_UNAVAILABLE", "File belum dapat diunduh dari penyimpanan. Coba lagi.");
+  const bytes = await boundedBytes(stored, ARTIFACT_MAX_BYTES).catch(() => {
+    throw new Fault(503, "ARTIFACT_STORAGE_UNAVAILABLE", "File dari penyimpanan tidak dapat dibaca.");
+  });
   assert(data.file_name && data.size_bytes === bytes.length && data.sha256 === checksum(bytes) &&
-    validArtifact(data.kind, data.file_name, bytes), 503, "ARTIFACT_STORAGE_UNAVAILABLE", "Integritas file tidak dapat dikonfirmasi.");
-  return new Response(result.data, { headers: {
+    validArtifact(data.kind, data.file_name, bytes), 503, "ARTIFACT_INTEGRITY_FAILED", "Integritas file tidak dapat dikonfirmasi.");
+  return new Response(new Uint8Array(bytes), { headers: {
     "Cache-Control": "private, no-store",
     "Content-Type": "application/octet-stream",
+    "Content-Length": String(bytes.length),
     "Content-Disposition": `attachment; filename="${data.file_name}"`,
     "X-Content-Type-Options": "nosniff",
   } });

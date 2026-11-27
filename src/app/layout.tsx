@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { DashboardSessionProvider } from "@/components/session-gate";
 
 export const metadata: Metadata = {
   title: "Dashboard QA | OpenBot",
@@ -7,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="id"><body>{children}</body></html>;
+  return <html lang="id"><body><DashboardSessionProvider>{children}</DashboardSessionProvider></body></html>;
 }

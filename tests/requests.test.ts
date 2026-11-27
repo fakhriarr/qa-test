@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { ARTIFACT_MAX_BYTES, deliverableCatalog, draftDataSchema, submissionSchema } from "../src/contracts/requests";
 import { validArtifact } from "../src/server/artifact-format";
 import { visibleLinkCandidates } from "../src/server/discovery";
-import { artifactPath, artifactToken, storageCapability } from "../src/server/artifacts";
+import { artifactPath, artifactToken, downloadArtifact, storageCapability } from "../src/server/artifacts";
 
 const complete = {
   targetUrl: "https://shop.example/",
@@ -85,4 +85,36 @@ test("internal Storage capability is separate and scoped to job, execution and i
   assert.notEqual(cap, storageCapability(key, "job", "other-execution", "item"));
   assert.notEqual(cap, storageCapability(key, "job", "execution", "other-item"));
   assert.notEqual(cap, artifactToken("synthetic-key", "item"));
+});
+
+test("downloads verified CSV from the authenticated Storage endpoint", async (t) => {
+  const { createHash } = await import("node:crypto");
+  const csv = "case,expected\nLogin,success\n";
+  const row = {
+    owner_id: "owner", job_id: "job", execution_id: "execution", deliverable_id: "item",
+    file_name: "cases.csv", kind: "test_case", size_bytes: Buffer.byteLength(csv),
+    sha256: createHash("sha256").update(csv).digest("hex"),
+  };
+  const filters: Record<string, string> = {};
+  const query = {
+    select: () => query,
+    eq: (key: string, value: string) => { filters[key] = value; return query; },
+    not: () => query,
+    maybeSingle: async () => ({ data: filters.owner_id === "owner" ? row : null, error: null }),
+  };
+  const client = {
+    from: () => query,
+    auth: { getSession: async () => ({ data: { session: { user: { id: "owner" }, access_token: "synthetic-token" } }, error: null }) },
+  } as unknown as Parameters<typeof downloadArtifact>[0];
+  const config = { supabaseUrl: "https://storage.example", publishableKey: "test-key", origin: "https://app.example" };
+  const fetchMock = t.mock.method(globalThis, "fetch", async (url: URL, init: RequestInit) => {
+    assert.equal(url.pathname, "/storage/v1/object/authenticated/qa-deliverables/owner/job/execution/item");
+    assert.equal(new Headers(init.headers).get("authorization"), "Bearer synthetic-token");
+    return new Response(csv);
+  });
+  await assert.rejects(downloadArtifact(client, config, "other", "job", "item"), { code: "ARTIFACT_NOT_FOUND" });
+  assert.equal(fetchMock.mock.callCount(), 0);
+  const response = await downloadArtifact(client, config, "owner", "job", "item");
+  assert.equal(response.headers.get("content-disposition"), 'attachment; filename="cases.csv"');
+  assert.equal(await response.text(), csv);
 });
