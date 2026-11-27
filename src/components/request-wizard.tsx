@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { JobResponse } from "@/contracts";
 import {
-  deliverableCatalog, draftDataSchema, requestUrl, submissionSchema,
+  deliverableCatalog, draftDataSchema, requestUrl, scopeUrl, submissionSchema,
   type DeliverableKind, type Draft, type DraftData, type Submission,
 } from "@/contracts/requests";
 import { apiRequest, errorText, HttpError } from "@/components/api-client";
@@ -44,6 +44,31 @@ function accessNotesIssue(value: string): string | null {
     return "Petunjuk akses tidak boleh memuat kata sandi, token, kunci API, atau pola kredensial. Tulis hanya instruksi nonrahasia.";
   }
   return null;
+}
+
+function canonicalHref(value: string): string | null {
+  try {
+    return new URL(value).href;
+  } catch {
+    return null;
+  }
+}
+
+function resolveManualScopeUrl(raw: string, target: string): { url?: string; error?: string } {
+  const value = raw.trim();
+  if (!value) return {};
+  let candidate = value;
+  if (value.startsWith("#")) {
+    const base = target.trim();
+    if (!requestUrl.safeParse(base).success) {
+      return { error: "Isi URL target yang valid di langkah pertama sebelum menambah anchor seperti #fitur." };
+    }
+    candidate = `${new URL(base).href}${value}`;
+  }
+  if (!scopeUrl.safeParse(candidate).success) {
+    return { error: "URL cakupan harus HTTP(S) lengkap (boleh memakai #anchor nonkosong tanpa kredensial), atau tulis #anchor bila URL target sudah valid." };
+  }
+  return { url: new URL(candidate).href };
 }
 
 type PendingDraft = { key: string; data: DraftData };
@@ -201,7 +226,7 @@ export default function RequestWizard({ draftId: initialDraftId, context }: { dr
       if (urls.length === 0) return "Pilih minimal satu URL cakupan, atau tambahkan URL manual.";
       if (urls.length > 12) return "Cakupan maksimal 12 URL.";
       for (const url of urls) {
-        if (!requestUrl.safeParse(url).success) return `URL cakupan belum valid: ${url}`;
+        if (!scopeUrl.safeParse(url).success) return `URL cakupan belum valid: ${url}`;
       }
       if (new Set(urls.map(url => new URL(url).href)).size !== urls.length) return "Ada URL cakupan yang sama.";
       return null;
@@ -464,9 +489,15 @@ export default function RequestWizard({ draftId: initialDraftId, context }: { dr
     }
   }
 
+  function isCandidateSelected(url: string) {
+    const href = canonicalHref(url);
+    return scopeUrls.some(item => item === url || (href !== null && canonicalHref(item.trim()) === href));
+  }
+
   function toggleCandidate(url: string) {
-    if (scopeUrls.includes(url)) {
-      setScopeUrls(scopeUrls.filter(item => item !== url));
+    const href = canonicalHref(url);
+    if (isCandidateSelected(url)) {
+      setScopeUrls(scopeUrls.filter(item => item !== url && (href === null || canonicalHref(item.trim()) !== href)));
       setManualError("");
       return;
     }
@@ -474,23 +505,22 @@ export default function RequestWizard({ draftId: initialDraftId, context }: { dr
       setManualError("Cakupan maksimal 12 URL.");
       return;
     }
-    setScopeUrls([...scopeUrls, url]);
+    setScopeUrls([...scopeUrls, href ?? url]);
     setManualError("");
   }
 
   function addManual() {
-    const value = manualUrl.trim();
-    if (!value) return;
-    if (!requestUrl.safeParse(value).success) {
-      setManualError("URL harus HTTP(S) lengkap, tanpa kredensial atau fragmen.");
+    const resolved = resolveManualScopeUrl(manualUrl, targetUrl);
+    if (!resolved.url) {
+      if (resolved.error) setManualError(resolved.error);
       return;
     }
     if (scopeUrls.length >= 12) {
       setManualError("Cakupan maksimal 12 URL.");
       return;
     }
-    const href = new URL(value).href;
-    if (scopeUrls.some(item => { try { return new URL(item).href === href; } catch { return false; } })) {
+    const href = resolved.url;
+    if (scopeUrls.some(item => canonicalHref(item.trim()) === href)) {
       setManualError("URL ini sudah ada di cakupan.");
       return;
     }
@@ -670,7 +700,7 @@ export default function RequestWizard({ draftId: initialDraftId, context }: { dr
             <ul className="candidate-list">
               {candidates.map(url => <li key={url}>
                 <label className="check">
-                  <input type="checkbox" checked={scopeUrls.includes(url)} onChange={() => toggleCandidate(url)} />
+                  <input type="checkbox" checked={isCandidateSelected(url)} onChange={() => toggleCandidate(url)} />
                   <span className="mono">{url}</span>
                 </label>
               </li>)}
@@ -681,17 +711,17 @@ export default function RequestWizard({ draftId: initialDraftId, context }: { dr
             <label className="field-label" htmlFor="manual-url">Tambah URL manual</label>
             <div className="inline-row">
               <input
-                id="manual-url" className="input" type="url" inputMode="url" maxLength={2048}
+                id="manual-url" className="input" type="text" inputMode="url" maxLength={2048}
                 value={manualUrl} onChange={event => setManualUrl(event.target.value)}
                 onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); addManual(); } }}
-                placeholder="https://contoh.internal/halaman"
+                placeholder="https://contoh.internal/halaman#fitur atau #fitur"
                 aria-invalid={manualError ? true : undefined}
-                aria-describedby={manualError ? "manual-error" : undefined}
+                aria-describedby={manualError ? "manual-help manual-error" : "manual-help"}
               />
               <button type="button" className="button button-quiet" onClick={addManual}>Tambah</button>
             </div>
             {manualError && <p className="error-text" id="manual-error" role="alert">{manualError}</p>}
-            <p className="help">URL manual selalu tersedia, termasuk saat pemindaian gagal atau hanya menemukan sebagian halaman.</p>
+            <p className="help" id="manual-help">URL manual selalu tersedia, termasuk saat pemindaian gagal atau hanya menemukan sebagian halaman. Mendukung URL lengkap dengan fragmen (#fitur) atau tulis #fitur untuk merujuk URL target.</p>
           </div>
 
           <fieldset className="field">

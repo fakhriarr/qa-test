@@ -2,7 +2,7 @@ import "./only";
 import { lookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
-import { requestUrl } from "../contracts/requests";
+import { scopeUrl } from "../contracts/requests";
 import { assert, Fault } from "./errors";
 
 const nonPublic = new BlockList();
@@ -82,6 +82,8 @@ const ignored = new Set("head script style template noscript textarea title xmp 
 const rawText = new Set("script style textarea title xmp iframe noembed noframes".split(" "));
 
 export function visibleLinkCandidates(html: string, page: URL): string[] {
+  const base = new URL(page.href);
+  base.hash = "";
   const tokens = /<!--[\s\S]*?(?:-->|$)|<![^>]*>|<(\/?)([a-zA-Z][a-zA-Z0-9:-]*)(?=[\s/>])((?:"[^"]*"|'[^']*'|[^'"<>])*)>/g;
   const ancestors: { tag: string; hidden: boolean }[] = [];
   const urls = new Set<string>();
@@ -107,12 +109,12 @@ export function visibleLinkCandidates(html: string, page: URL): string[] {
       /(?:display\s*:\s*none|visibility\s*:\s*hidden)/i.test(attrs.get("style") ?? ""));
     if (!voidTags.has(tag)) ancestors.push({ tag, hidden });
     // Skip constructs that depend on markup or navigation state we do not emulate.
-    const raw = attrs.get("href");
-    if (hidden || tag !== "a" || !raw || attrs.has("download") || raw.startsWith("#")) continue;
+    const raw = attrs.get("href")?.trim();
+    if (hidden || tag !== "a" || !raw || attrs.has("download")) continue;
     try {
-      const url = new URL(raw.replace(/&amp;/gi, "&"), page);
-      url.hash = "";
-      if (url.origin === page.origin && url.href !== page.href && requestUrl.safeParse(url.href).success) urls.add(url.href);
+      const url = new URL(raw.replace(/&amp;/gi, "&"), base);
+      if (!url.hash) url.hash = "";
+      if (url.origin === base.origin && url.href !== base.href && scopeUrl.safeParse(url.href).success) urls.add(url.href);
     } catch { continue; }
     if (urls.size === 40) break;
   }
@@ -120,10 +122,11 @@ export function visibleLinkCandidates(html: string, page: URL): string[] {
 }
 
 export async function discoverLinks(target: string): Promise<string[]> {
+  assert(!target.includes("#"), 422, "DISCOVERY_TARGET_DENIED", "Gunakan URL publik tanpa fragmen.");
   const url = new URL(target);
   assert(allowedHost(url), 422, "DISCOVERY_TARGET_DENIED", "Gunakan host HTTPS publik pada port standar.");
   // Never forward tokens in a supplied query and never follow redirects or discovered links.
-  assert(!url.search && url.pathname.startsWith("/") && !url.pathname.startsWith("//"),
+  assert(!url.search && !url.hash && url.pathname.startsWith("/") && !url.pathname.startsWith("//"),
     422, "DISCOVERY_TARGET_DENIED", "Gunakan URL publik tanpa parameter query.");
   const signal = AbortSignal.timeout(TIMEOUT_MS);
   const address = await resolvePublicIPv4(url.hostname, signal);

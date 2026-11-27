@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ARTIFACT_MAX_BYTES, deliverableCatalog, draftDataSchema, submissionSchema } from "../src/contracts/requests";
+import { ARTIFACT_MAX_BYTES, deliverableCatalog, draftDataSchema, requestUrl, scopeUrl, submissionSchema } from "../src/contracts/requests";
 import { validArtifact } from "../src/server/artifact-format";
-import { visibleLinkCandidates } from "../src/server/discovery";
+import { discoverLinks, visibleLinkCandidates } from "../src/server/discovery";
 import { artifactPath, artifactToken, downloadArtifact, storageCapability } from "../src/server/artifacts";
+import { buildOpenBotDispatchRequest } from "../src/server/webhook";
 
 const complete = {
   targetUrl: "https://shop.example/",
@@ -24,18 +25,100 @@ test("partial drafts can be stored without becoming valid submissions", () => {
   assert.equal(Object.keys(deliverableCatalog).length, 7);
 });
 
-test("discovery returns same-origin anchor candidates without navigation", () => {
+test("discovery returns same-origin page and anchor candidates without navigation", () => {
   const html = `<!doctype html><html><head><title>shop</title></head><body>
+    <a href="/">Beranda</a><a href="#">Menu kosong</a>
+    <a href="#fitur">Fitur</a><a href="/#fitur">Fitur duplikat</a><a href=" #kontak ">Kontak</a>
     <a href="/cart">Keranjang</a><a href="/cart#total">Total</a>
+    <a href="/docs#fitur">Dokumentasi Fitur</a><a href="/docs#api">Dokumentasi API</a><a href="/docs#">Dokumentasi</a>
+    <a href="https://elsewhere.example/#fitur">External Anchor</a>
     <a href="https://elsewhere.example/checkout">External</a>
-    <div hidden><a href="/hidden">Hidden</a></div>
-    <script>const sample = '<a href="/script">Ignored</a>';</script>
-    <!-- <a href="/comment">Ignored</a> -->
-    <a download href="/export.csv">Download</a><a href="/help?a=1&amp;b=2">Bantuan</a>
+    <div hidden><a href="#tersembunyi">Hidden Anchor</a><a href="/hidden">Hidden</a></div>
+    <script>const sample = '<a href="#script">Ignored</a><a href="/script">Ignored</a>';</script>
+    <!-- <a href="#comment">Ignored</a> -->
+    <a download href="/export.csv">Download</a><a href="/help?a=1&amp;b=2#faq">Bantuan FAQ</a>
     </body></html>`;
   assert.deepEqual(visibleLinkCandidates(html, new URL("https://shop.example/")), [
-    "https://shop.example/cart", "https://shop.example/help?a=1&b=2",
+    "https://shop.example/#fitur",
+    "https://shop.example/#kontak",
+    "https://shop.example/cart",
+    "https://shop.example/cart#total",
+    "https://shop.example/docs#fitur",
+    "https://shop.example/docs#api",
+    "https://shop.example/docs",
+    "https://shop.example/help?a=1&b=2#faq",
   ]);
+});
+
+test("targetUrl stays fragment-free while scopeUrls preserve distinct anchors through draft, submit and dispatch", async () => {
+  assert.equal(requestUrl.safeParse("https://shop.example/").success, true);
+  assert.equal(requestUrl.safeParse("https://shop.example/#fitur").success, false);
+  assert.equal(requestUrl.safeParse("https://shop.example/#").success, false);
+  await assert.rejects(discoverLinks("https://shop.example/#fitur"), { code: "DISCOVERY_TARGET_DENIED" });
+
+  assert.equal(scopeUrl.safeParse("https://shop.example/#fitur").success, true);
+  assert.equal(scopeUrl.safeParse("https://shop.example/docs#fitur").success, true);
+  assert.equal(scopeUrl.safeParse("https://shop.example/#/spa-route").success, true);
+  assert.equal(scopeUrl.safeParse("https://shop.example/#").success, false);
+  assert.equal(scopeUrl.safeParse("https://shop.example/#dua#fragmen").success, false);
+  assert.equal(scopeUrl.safeParse("https://user:value@shop.example/#fitur").success, false);
+
+  const anchored = {
+    ...complete,
+    scopeUrls: [
+      "https://shop.example/#fitur",
+      "https://shop.example/#kontak",
+      "https://shop.example/docs#fitur",
+    ],
+  };
+  assert.deepEqual(draftDataSchema.parse(anchored).scopeUrls, anchored.scopeUrls);
+  const parsed = submissionSchema.parse(anchored);
+  assert.deepEqual(parsed.scopeUrls, anchored.scopeUrls);
+  assert.equal(submissionSchema.safeParse({ ...anchored, targetUrl: "https://shop.example/#fitur" }).success, false);
+  assert.equal(submissionSchema.safeParse({
+    ...complete,
+    scopeUrls: ["https://shop.example#fitur", "https://shop.example/#fitur"],
+  }).success, false);
+
+  const dispatched = buildOpenBotDispatchRequest({
+    appOrigin: "https://qa.example.invalid",
+    webhookConfig: {
+      webhookUrl: "https://webhook.example.invalid/hook",
+      webhookSecret: "synthetic-webhook-secret",
+      callbackKeyMaterial: new Uint8Array(32),
+    },
+    job: {
+      schemaVersion: 1,
+      jobId: "11111111-1111-4111-8111-111111111111",
+      executionId: "22222222-2222-4222-8222-222222222222",
+      mode: "simulation",
+      targetUrl: parsed.targetUrl,
+      scope: "Cakupan permintaan QA tersimpan di request.scopeUrls.",
+      acceptanceCriteria: parsed.acceptanceCriteria,
+      deliverables: ["summary", "checks", "findings"],
+      createdAt: "2026-11-27T03:00:00.000Z",
+      updatedAt: "2026-11-27T03:00:00.000Z",
+      version: 1,
+      deliveryStatus: "sending",
+      executionStatus: "not_started",
+      lastError: null,
+      result: null,
+      leaseExpiresAt: null,
+    },
+    callbackToken: "0".repeat(64),
+    requestDetails: {
+      environment: parsed.environment,
+      accessRequiresLogin: parsed.accessRequiresLogin,
+      accessNotes: parsed.accessNotes,
+      scopeUrls: parsed.scopeUrls,
+      suggestions: parsed.suggestions,
+      prohibitions: parsed.prohibitions,
+      securityPolicy: "defensive_only",
+      deliverables: [],
+    },
+  });
+  assert.equal(dispatched.payload.data.targetUrl, "https://shop.example/");
+  assert.deepEqual(dispatched.payload.data.request?.scopeUrls, anchored.scopeUrls);
 });
 
 test("artifact format gates accept inert Markdown, CSV and a single-entry ZIP", () => {

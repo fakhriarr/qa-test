@@ -13,16 +13,22 @@ export const deliverableCatalog = {
 export const deliverableKind = z.enum(Object.keys(deliverableCatalog) as (keyof typeof deliverableCatalog)[]);
 export type DeliverableKind = z.infer<typeof deliverableKind>;
 
-export const requestUrl = z.string().max(2048).refine(value => {
+function validHttpUrl(value: string, allowFragment: boolean): boolean {
   try {
     const url = new URL(value);
-    return /^https?:\/\/[^/?#]+/u.test(value) && !/[\s\\]/u.test(value) &&
-      !url.username && !url.password && !url.hash &&
-      !value.slice(value.indexOf("//") + 2).split(/[/?#]/u)[0].includes("@");
+    if (!/^https?:\/\/[^/@?#\s\\]+/u.test(value) || /[\u0000-\u001f\u007f\s\\]/u.test(value)) return false;
+    if (url.username || url.password) return false;
+    if (value.slice(value.indexOf("//") + 2).split(/[/?#]/u)[0].includes("@")) return false;
+    const hashIndex = value.indexOf("#");
+    if (!allowFragment) return hashIndex === -1 && !url.hash;
+    return hashIndex === -1 || (url.hash.length > 1 && !value.slice(hashIndex + 1).includes("#"));
   } catch {
     return false;
   }
-});
+}
+
+export const requestUrl = z.string().max(2048).refine(value => validHttpUrl(value, false));
+export const scopeUrl = z.string().max(2048).refine(value => validHttpUrl(value, true));
 
 const accessNotes = z.string().max(1000).refine(value =>
   !/(?:\b(?:password|passwd|kata sandi|token|api[_ -]?key|secret|otp)\s*[:=]|\bbearer\s+[\w.-]+|https?:\/\/[^\s/?#]*@|-----BEGIN [^-]*PRIVATE KEY-----)/iu.test(value),
@@ -43,7 +49,7 @@ export const revisionSchema = z.number().int().min(1).max(2147483646);
 export const submissionSchema = z.strictObject({
   ...fields,
   targetUrl: requestUrl,
-  scopeUrls: z.array(requestUrl).min(1).max(12).refine(urls => new Set(urls.map(url => new URL(url).href)).size === urls.length),
+  scopeUrls: z.array(scopeUrl).min(1).max(12).refine(urls => new Set(urls.map(url => new URL(url).href)).size === urls.length),
   acceptanceCriteria: z.array(z.string().trim().min(1).max(500)).min(1).max(10),
   accessRequiresLogin: fields.accessRequiresLogin.default(false),
   accessNotes: fields.accessNotes.default(""),

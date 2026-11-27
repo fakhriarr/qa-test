@@ -46,18 +46,18 @@ Contoh data lengkap sebelum submit:
 
 | Field | Validasi saat submit |
 |---|---|
-| `targetUrl` | URL HTTP(S) absolut, maksimal 2.048 karakter, tanpa userinfo atau fragmen |
+| `targetUrl` | URL HTTP(S) absolut (`requestUrl`), maksimal 2.048 karakter, tanpa userinfo atau fragmen |
 | `environment` | `development`, `staging`, `production`, atau `other` |
 | `accessRequiresLogin` | Boolean opsional. Default submit dan resume jika absen adalah `false`. |
 | `accessNotes` | Teks nonrahasia opsional, maksimum 1.000 karakter. Default submit dan resume jika absen adalah `""`. |
-| `scopeUrls` | 1–12 URL HTTP(S) unik setelah normalisasi, aturan URL sama. Manual dan discovery memakai field yang sama. |
+| `scopeUrls` | 1–12 URL HTTP(S) unik setelah normalisasi (`scopeUrl`), maksimal 2.048 karakter, tanpa userinfo, dan mendukung fragmen/anchor non-kosong (misalnya `https://shop.example/#fitur` atau `https://shop.example/docs#fitur`; fragmen kosong `#` ditolak). Manual dan discovery memakai field serta skema `scopeUrl` yang sama. |
 | `acceptanceCriteria` | 1–10 teks, masing-masing 1–500 karakter setelah pemangkasan spasi |
 | `suggestions`, `prohibitions` | Opsional, masing-masing maksimal 2.000 karakter dan default string kosong |
 | `deliverables` | 1–7 jenis unik dari katalog |
 
 Draf menerima isian parsial, termasuk URL yang belum selesai diketik. Field di luar skema ditolak, termasuk password dan token. Isi `accessNotes` hanya dengan instruksi proses, misalnya “Minta akun uji lewat kanal internal”. API menolak pola umum kredensial, tetapi teks bebas tetap harus bebas rahasia. Kirim kedua field di objek POST draf, atau di `data` pada PUT. Baca ulang dari `draft.data` saat resume dan `request` saat detail. Keduanya diteruskan pada `data.request` saat dispatch; indikator akses tidak mengubah discovery publik. Batas body JSON 64 KiB berlaku untuk request ini. `400 INVALID_REQUEST` berarti bentuk atau isi belum sah. `404 DRAFT_NOT_FOUND` juga berlaku untuk draf milik akun lain. `409 DRAFT_CONFLICT` berarti data berubah atau draf sudah disubmit. Pertahankan isian lokal dan muat revisi server sebelum mencoba menyimpan lagi.
 
-Discovery hanya mengambil satu dokumen HTML publik HTTPS pada port standar, tanpa query pada URL awal, tanpa mengikuti redirect, tanpa sesi target, dan tanpa membuka tautan hasil. DNS IPv4 dipastikan publik dan alamat koneksi dipatok. Batas 4 detik, 256 KiB HTML, dan 40 kandidat satu origin. Filter memakai markup HTML statis dan dapat melewatkan tautan yang dibuat JavaScript atau menyertakan tautan yang disembunyikan stylesheet eksternal. Kandidat hanya saran cakupan dan pengguna tetap bisa menambahkan URL manual.
+Discovery hanya mengambil satu dokumen HTML publik HTTPS pada port standar, tanpa query atau fragmen pada URL awal (`targetUrl`), tanpa mengikuti redirect, tanpa sesi target, dan tanpa membuka tautan hasil. DNS IPv4 dipastikan publik dan alamat koneksi dipatok. Batas 4 detik, 256 KiB HTML, dan 40 kandidat satu origin. Tautan publik satu origin termasuk anchor bagian pada halaman yang sama (`href="#fitur"`) maupun halaman lain (`href="/docs#fitur"`) dipertahankan sebagai kandidat terpisah, sedangkan tautan ke halaman dasar tanpa anchor atau anchor kosong (`href="#"`) diabaikan. Filter memakai markup HTML statis dari respons awal server sehingga tidak melihat anchor/tautan yang baru dirender oleh JavaScript di browser (SPA client-side) dan dapat menyertakan tautan yang disembunyikan stylesheet eksternal. Kandidat hanya saran cakupan dan pengguna tetap bisa menambahkan URL manual (termasuk berfragmen).
 
 ## Katalog dan hasil
 
